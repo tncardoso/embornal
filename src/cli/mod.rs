@@ -19,8 +19,16 @@ use crate::memory::api::Memory;
 use clap::{Parser, Subcommand};
 use std::io::Write;
 
+/// The banner shown before the help text.
+const BANNER: &str = include_str!("banner.ans");
+
 #[derive(Debug, Parser)]
-#[command(name = "embornal", version, about = "A toolkit for agents")]
+#[command(
+    name = "embornal",
+    version,
+    about = "A toolkit for agents",
+    before_help = BANNER
+)]
 pub struct Cli {
     /// Who asks. Access control reads this.
     #[arg(long, global = true, value_name = "SUBJECT")]
