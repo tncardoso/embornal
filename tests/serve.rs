@@ -15,17 +15,27 @@ struct Server {
 impl Server {
     /// Writes the facts, starts the server and waits until it answers.
     fn start(name: &str, port: u16, facts: &[(&str, &str)]) -> Self {
+        let stores: Vec<Vec<&str>> = facts.iter().map(|(path, c)| vec![*path, *c]).collect();
+        Self::start_with(name, port, &stores)
+    }
+
+    /// Runs one `store` for each list of arguments, then starts the server.
+    ///
+    /// A list holds the path, the content, and the flags that the store needs,
+    /// such as `--tag`.
+    fn start_with(name: &str, port: u16, stores: &[Vec<&str>]) -> Self {
         let home = std::env::temp_dir().join(format!("embornal-serve-{name}"));
         std::fs::remove_dir_all(&home).ok();
         std::fs::create_dir_all(&home).unwrap();
 
-        for (path, content) in facts {
+        for store in stores {
             let status = Command::new(env!("CARGO_BIN_EXE_embornal"))
-                .args(["memory", "store", path, content])
+                .args(["memory", "store"])
+                .args(store)
                 .env("EMBORNAL_HOME", &home)
                 .status()
                 .unwrap();
-            assert!(status.success(), "the store of {path} failed");
+            assert!(status.success(), "the store of {store:?} failed");
         }
 
         let mut child = Command::new(env!("CARGO_BIN_EXE_embornal"))
@@ -90,6 +100,75 @@ fn a_page_shows_the_facts_of_its_path() {
     assert!(page.starts_with("HTTP/1.1 200"));
     assert!(page.contains("The first fact."));
     assert!(page.contains("<h1>/notes</h1>"));
+}
+
+#[test]
+fn a_page_shows_the_metadata_of_its_path() {
+    let server = Server::start(
+        "metadata",
+        18811,
+        &[
+            ("/notes", "The first fact."),
+            ("/notes", "The second fact."),
+            ("/notes/a", "Below."),
+        ],
+    );
+    let page = server.get("/notes");
+
+    assert!(page.contains("2 facts · 1 child · signal 1.000"), "{page}");
+    // Each fact carries its own strength and the day of its writing.
+    let today = format!("signal 1.000 · {}", today());
+    assert_eq!(page.matches(today.as_str()).count(), 2, "{page}");
+}
+
+#[test]
+fn a_fact_shows_the_tags_that_it_holds() {
+    let server = Server::start_with(
+        "tags",
+        18814,
+        &[
+            vec!["/notes", "A tagged fact.", "--tag", "kind=note"],
+            vec!["/notes", "A plain fact."],
+        ],
+    );
+    let page = server.get("/notes");
+
+    assert!(
+        page.contains(&format!("signal 1.000 · {} · kind=note</div>", today())),
+        "{page}"
+    );
+    // The fact with no tag stops at the date.
+    assert!(
+        page.contains(&format!("signal 1.000 · {}</div>", today())),
+        "{page}"
+    );
+}
+
+/// Returns the day, in UTC, that the server writes for a fact stored now.
+fn today() -> String {
+    chrono::Utc::now().format("%Y-%m-%d").to_string()
+}
+
+#[test]
+fn the_search_page_shows_the_signal_of_each_fact() {
+    let server = Server::start(
+        "search-signal",
+        18813,
+        &[("/db", "The memory uses SQLite.")],
+    );
+    let page = server.get("/search?q=sqlite");
+
+    assert!(page.contains("signal 1.000"), "{page}");
+}
+
+#[test]
+fn a_path_with_no_fact_shows_no_signal() {
+    let server = Server::start("metadata-empty", 18812, &[("/notes/a", "Below.")]);
+    let page = server.get("/notes");
+
+    // The metadata line stops at the counts, and no fact carries a strength.
+    assert!(page.contains("0 facts · 1 child</p>"), "{page}");
+    assert!(!page.contains("<div class=\"about\">"), "{page}");
 }
 
 #[test]

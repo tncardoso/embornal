@@ -195,6 +195,28 @@ facts and the paths below it. A `[[/link]]` becomes a link to that page.
 | ---- | ------ |
 | `--port N` | Listens on another port. |
 
+Each page shows the metadata of its path below the trail: the number of facts
+that the path holds, the number of paths one step below it, and the signal.
+The signal is the mean strength of the facts of the path, from 1.000 for facts
+that somebody read now to 0.000 for facts that the memory almost lost. A path
+with no fact shows no signal.
+
+Below its text, each fact carries its own signal, the day on which somebody
+wrote it, and its tags:
+
+```
+signal 0.812 · 2026-07-28 · kind=note visibility=private
+```
+
+A path can hold a fact that somebody reads each day next to one that the
+memory almost lost, so each fact states its own strength. The day is in UTC,
+which is how the memory holds time. The tags are the ones that decide who
+reads the fact, which include the tags that the fact takes from the paths
+above it. A fact with no tag stops at the day.
+
+On the search page, the signal is the strength that the fact had when the
+search found it, before the recall lifts it.
+
 A page does not count as a recall, but a search in the browser does.
 
 Press Ctrl-C to stop the server.
