@@ -88,12 +88,41 @@ The two scores come from different scales:
 
 - The keyword score is a rank. bm25 says nothing on its own, because it
   depends on the words of the question and on the whole memory. The best hit
-  of the answer therefore becomes 1.0, and the worst becomes 0.0.
+  of the answer therefore becomes 1.0, and the worst becomes 0.0. A question
+  first drops the words that say nothing; see below.
 - The vector score is an angle. The vectors have a length of one, so the
   distance `d` that the index gives becomes `1 - d² / 2`. This runs from 1.0,
   for a fact that says the same as the question, through 0.0 for a fact with
   nothing in common, down to -1.0 for a fact that says the opposite. The
   number holds on its own, and it needs no other hit to make sense of it.
+
+### The words that say nothing
+
+A word that most of the facts hold does not tell one fact from another. The
+question "where is the data kept" would otherwise reach every fact that holds
+"the", and the best of those weak matches would take the top of the answer
+away from a fact that really answers the question.
+
+`keyword_ceiling` sets the share of the facts that a word may hold. Above that
+share, the word leaves the question. The default is 0.5.
+
+The count runs through the index itself, and not through a list of words. Two
+reasons ask for that:
+
+- One memory holds more than one language. A list would serve only the
+  language that wrote it.
+- Only the index knows how it folds a word. `MEMÓRIA` and `memoria` therefore
+  count as one word here, exactly as they do in the search.
+
+A question where every word is common keeps all of its words, because a
+question that holds nothing else still asks something. This also carries a
+memory that is too small to tell a common word from a rare one.
+
+The count reads the memory as it is. A memory of a few facts, written in a
+terse style, may hold "is" one time only; the word then says a lot in that
+memory and it stays. A memory of natural sentences holds "is" in most of them,
+and it goes. The rule needs no list because the memory itself says which words
+are common in it.
 
 ### The two cuts
 
@@ -127,6 +156,7 @@ embedding:
 
 recall:
   keyword_weight: 1.0
+  keyword_ceiling: 0.5      # a word above this share of the facts says nothing
   vector_weight: 1.0
   vector_floor: 0.15
   vector_share: 0.5

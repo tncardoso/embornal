@@ -517,6 +517,54 @@ impl Memory {
         Ok(mixed)
     }
 
+    /// Builds the expression that the keyword index reads.
+    ///
+    /// A word that most of the facts hold does not tell one fact from
+    /// another. A question such as "where is the data kept" would otherwise
+    /// reach every fact that holds "the", and the best of those weak matches
+    /// would take the top of the answer away from a fact that really answers
+    /// the question. Such a word therefore leaves the expression.
+    ///
+    /// The count runs through the index itself, and not through a list of
+    /// words. Two reasons ask for that. One memory holds more than one
+    /// language, and a list would serve only the language that wrote it. And
+    /// only the index knows how it folds a word, so `MEMÓRIA` and `memoria`
+    /// count as one word here, exactly as they do in the search.
+    fn keyword_expression(&self, query: &str) -> Result<String> {
+        let terms = fts_terms(query);
+        if terms.is_empty() {
+            return Ok(String::new());
+        }
+
+        let facts: i64 =
+            self.db
+                .conn()
+                .query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))?;
+        let ceiling = (facts as f64 * self.config.recall.keyword_ceiling).floor() as i64;
+
+        // One lookup for each word of the question. A question holds few
+        // words, and each lookup reads the index alone.
+        let mut stmt = self
+            .db
+            .conn()
+            .prepare("SELECT COUNT(*) FROM facts_fts WHERE facts_fts MATCH ?")?;
+        let mut kept = Vec::with_capacity(terms.len());
+        for term in &terms {
+            let holders: i64 = stmt.query_row([term], |row| row.get(0))?;
+            if holders <= ceiling {
+                kept.push(term.clone());
+            }
+        }
+
+        // A question that holds nothing but common words still asks
+        // something. This also carries a memory that is too small to tell a
+        // common word from a rare one.
+        if kept.is_empty() {
+            return Ok(terms.join(" OR "));
+        }
+        Ok(kept.join(" OR "))
+    }
+
     /// Reads the keyword index.
     fn by_keyword(
         &self,
@@ -524,7 +572,7 @@ impl Memory {
         filter: &AccessFilter,
         options: &RecallOptions,
     ) -> Result<Vec<(Fact, f64)>> {
-        let expression = fts_query(query);
+        let expression = self.keyword_expression(query)?;
         if expression.is_empty() {
             return Ok(Vec::new());
         }
@@ -1094,18 +1142,21 @@ fn subtree_clause(under: Option<&WikiPath>) -> (String, Vec<String>) {
     }
 }
 
-/// Turns what a user typed into an FTS5 expression.
+/// Cuts what a user typed into the terms of an FTS5 expression.
 ///
-/// Each word becomes a quoted term, and the terms join with `OR`. The quotes
-/// stop the FTS5 syntax from reading a word such as `NOT` or `a-b` as an
-/// operator.
-pub fn fts_query(input: &str) -> String {
+/// Each word becomes a quoted term. The quotes stop the FTS5 syntax from
+/// reading a word such as `NOT` or `a-b` as an operator.
+pub fn fts_terms(input: &str) -> Vec<String> {
     input
         .split(|c: char| !c.is_alphanumeric() && c != '\'')
         .filter(|word| !word.is_empty())
         .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" OR ")
+        .collect()
+}
+
+/// Turns what a user typed into an FTS5 expression.
+pub fn fts_query(input: &str) -> String {
+    fts_terms(input).join(" OR ")
 }
 
 #[cfg(test)]
@@ -1971,6 +2022,86 @@ mod tests {
             .recall(Some("alpha gamma"), RecallOptions::default())
             .unwrap();
         assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn a_word_that_most_facts_hold_leaves_the_question() {
+        let mut memory = memory();
+        for at in ["/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h"] {
+            write(&mut memory, at, "the tool holds the word");
+        }
+        write(&mut memory, "/rare", "the tool holds zarquon");
+
+        // "the" and "tool" reach every fact, so only "zarquon" is left and
+        // one fact comes back.
+        let hits = memory
+            .recall(Some("the tool zarquon"), RecallOptions::default())
+            .unwrap();
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert!(hits[0].fact.content.contains("zarquon"));
+    }
+
+    #[test]
+    fn a_question_of_common_words_alone_still_asks_something() {
+        let mut memory = memory();
+        for at in ["/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h"] {
+            write(&mut memory, at, "the tool holds the word");
+        }
+
+        // Every word of the question is common. Dropping all of them would
+        // turn the question into silence, so they all stay.
+        let hits = memory
+            .recall(Some("the tool"), RecallOptions::default())
+            .unwrap();
+        assert!(!hits.is_empty());
+    }
+
+    #[test]
+    fn a_ceiling_of_one_keeps_every_word() {
+        let mut config = Config::default();
+        config.recall.keyword_ceiling = 1.0;
+        let mut memory = Memory::open_in_memory(config).unwrap();
+        for at in ["/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h"] {
+            write(&mut memory, at, "the tool holds the word");
+        }
+        write(&mut memory, "/rare", "the tool holds zarquon");
+
+        // With no ceiling, "the" reaches every fact again.
+        let hits = memory
+            .recall(Some("the tool zarquon"), RecallOptions::default())
+            .unwrap();
+        assert!(hits.len() > 1, "{hits:?}");
+    }
+
+    #[test]
+    fn a_common_word_is_folded_the_way_the_index_folds_it() {
+        let mut memory = memory();
+        for at in ["/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h"] {
+            write(&mut memory, at, "a memória do sistema");
+        }
+        write(&mut memory, "/rare", "a memória guarda zarquon");
+
+        // The question writes MEMORIA without the accent. The count must
+        // still see it as the word that every fact holds, because that is how
+        // the index reads it.
+        let hits = memory
+            .recall(Some("MEMORIA zarquon"), RecallOptions::default())
+            .unwrap();
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert!(hits[0].fact.content.contains("zarquon"));
+    }
+
+    #[test]
+    fn a_small_memory_keeps_its_words() {
+        // With one fact of its own, every word looks common. The question
+        // must still find it.
+        let mut memory = memory();
+        write(&mut memory, "/db", "zarquon");
+
+        let hits = memory
+            .recall(Some("zarquon"), RecallOptions::default())
+            .unwrap();
+        assert_eq!(hits.len(), 1, "{hits:?}");
     }
 
     #[test]

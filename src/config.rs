@@ -215,6 +215,17 @@ pub struct RecallConfig {
     pub limit: usize,
     /// The weight of the keyword match.
     pub keyword_weight: f64,
+    /// Which share of the facts a word may hold before it says nothing.
+    ///
+    /// A word such as "the" reaches almost every fact of a memory in English.
+    /// It therefore tells no fact from another, and a question that holds it
+    /// would drag the whole memory into the answer.
+    ///
+    /// The count runs through the index, so this needs no list of words and
+    /// it works in each language that the memory holds.
+    ///
+    /// A value of 1.0 or above keeps every word.
+    pub keyword_ceiling: f64,
     /// The weight of the vector match.
     pub vector_weight: f64,
     /// How near a fact must be before the vector index gives it.
@@ -250,6 +261,7 @@ impl Default for RecallConfig {
         Self {
             limit: 20,
             keyword_weight: 1.0,
+            keyword_ceiling: 0.5,
             vector_weight: 1.0,
             vector_floor: 0.15,
             vector_share: 0.5,

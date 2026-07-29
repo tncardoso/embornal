@@ -190,6 +190,10 @@ $ embornal memory recall "where do my notes live"
 | /db  |  1.000 | The memory keeps everything in one file. |
 ```
 
+A word that most of the facts hold, such as "the", tells one fact from no
+other. The search drops such a word from the question, so that a fact which
+holds nothing else of the question stays out of the answer.
+
 The vector index needs a model. A memory with no model reads the keyword index
 alone. See [embeddings](embedding.md).
 
