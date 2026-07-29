@@ -2,6 +2,29 @@
 name = "embornal"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A toolkit for agents."
+license = "MIT"
+repository = "https://github.com/tncardoso/embornal"
+homepage = "https://github.com/tncardoso/embornal"
+readme = "README.md"
+keywords = ["agent", "memory", "llm", "cli"]
+categories = ["command-line-utilities"]
+# A list of what goes in, and not of what stays out: a new file in the
+# directory then does not reach crates.io by accident.
+include = [
+    "/src",
+    "/tests",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+]
+
+# docs.rs has no cmake, and the documentation does not need llama.cpp.
+[package.metadata.docs.rs]
+no-default-features = true
 
 [features]
 default = ["gguf"]
@@ -16,7 +39,10 @@ chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.4", features = ["derive"] }
 dirs = "6.0.0"
 hf-hub = { version = "1", features = ["blocking"], optional = true }
-llama-cpp-2 = { version = "0.1", optional = true }
+# No OpenMP: it makes the binary need libgomp at run time, which a released
+# binary must not do. `static-stdcxx` puts libstdc++ in the binary, for the
+# same reason. Both are Linux-only in the build script of llama-cpp-sys-2.
+llama-cpp-2 = { version = "0.1", default-features = false, features = ["common", "static-stdcxx"], optional = true }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_norway = "0.9.42"
@@ -27,3 +53,8 @@ ulid = "3.0.0"
 
 [dev-dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }
+
+# The profile that `dist` builds a release with.
+[profile.dist]
+inherits = "release"
+lto = "thin"

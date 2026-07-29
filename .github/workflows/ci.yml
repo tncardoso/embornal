@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The fast check. It leaves llama.cpp out, so it needs no C++ toolchain and
+  # it answers in a few minutes.
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: no-default-features
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+
+      - name: Check
+        run: cargo check --all-targets --no-default-features
+
+      - name: Test
+        run: cargo test --no-default-features
+
+  # The whole build, llama.cpp included. One platform is enough to catch a
+  # break in the embedding code.
+  check-gguf:
+    name: check (gguf)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: gguf
+
+      # cmake and a C++ compiler build llama.cpp. bindgen reads the headers
+      # through libclang.
+      - name: Install the build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y cmake clang libclang-dev
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test

@@ -536,10 +536,10 @@ impl Memory {
             return Ok(String::new());
         }
 
-        let facts: i64 =
-            self.db
-                .conn()
-                .query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))?;
+        let facts: i64 = self
+            .db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))?;
         let ceiling = (facts as f64 * self.config.recall.keyword_ceiling).floor() as i64;
 
         // One lookup for each word of the question. A question holds few
@@ -683,7 +683,10 @@ impl Memory {
         // Without a cut, a question that the memory cannot answer would still
         // come back full.
         let weights = &self.config.recall;
-        let best = hits.iter().map(|(_, score)| *score).fold(f64::MIN, f64::max);
+        let best = hits
+            .iter()
+            .map(|(_, score)| *score)
+            .fold(f64::MIN, f64::max);
         let cut = weights.vector_floor.max(best * weights.vector_share);
         hits.retain(|(_, score)| *score >= cut);
         Ok(hits)
@@ -1030,12 +1033,7 @@ fn rescale(hits: Vec<(Fact, f64)>) -> Vec<(Fact, f64)> {
 ///
 /// The two writes go together: a row of the index that names a fact with no
 /// vector would make the two disagree.
-fn write_embedding(
-    conn: &mut Connection,
-    fact: FactId,
-    vector: &[f32],
-    model: &str,
-) -> Result<()> {
+fn write_embedding(conn: &mut Connection, fact: FactId, vector: &[f32], model: &str) -> Result<()> {
     let blob = embedding::to_blob(vector);
     let tx = conn.transaction()?;
     tx.execute(

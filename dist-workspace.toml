@@ -1,0 +1,37 @@
+[workspace]
+members = ["cargo:."]
+
+# The release build and the installers. `dist generate` writes
+# .github/workflows/release.yml from this file, so no hand edits go there.
+[dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+installers = ["shell", "powershell"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+# The installer writes here, and EMBORNAL_INSTALL_DIR moves it.
+install-path = "~/.local/bin"
+install-updater = true
+# The binary then holds the list of its dependencies, for an audit.
+cargo-auditable = true
+# A pull request plans the release and builds nothing.
+pr-run-mode = "plan"
+
+# llama.cpp needs cmake and a C++ compiler. bindgen reads the headers of
+# llama.cpp through libclang.
+[dist.dependencies.apt]
+cmake = '*'
+clang = '*'
+libclang-dev = '*'
+
+[dist.dependencies.homebrew]
+cmake = '*'
+
+[dist.dependencies.chocolatey]
+cmake = '*'
+llvm = '*'

@@ -460,7 +460,12 @@ fn the_real_model_finds_a_fact_by_its_sense() {
         String::from_utf8(output.stdout).unwrap()
     };
 
-    run(&["memory", "store", "/db", "The memory keeps everything in one file."]);
+    run(&[
+        "memory",
+        "store",
+        "/db",
+        "The memory keeps everything in one file.",
+    ]);
 
     // The question shares no word with the fact, so only the vector index can
     // answer it.

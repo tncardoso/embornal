@@ -63,9 +63,7 @@ impl Gguf {
     pub fn load(weights: &Path, config: &EmbeddingConfig) -> Result<Self> {
         let backend = backend()?;
         let model = LlamaModel::load_from_file(backend, weights, &LlamaModelParams::default())
-            .map_err(|err| {
-                Error::Embedding(format!("cannot read {}: {err}", weights.display()))
-            })?;
+            .map_err(|err| Error::Embedding(format!("cannot read {}: {err}", weights.display())))?;
 
         let width = usize::try_from(model.n_embd())
             .map_err(|_| Error::Embedding("the model reports no width".to_string()))?;
@@ -101,7 +99,6 @@ impl Gguf {
             })
             .collect()
     }
-
 }
 
 impl Embedder for Gguf {
