@@ -178,9 +178,45 @@ A hit counts as a recall: it lifts the signal of the fact, and it lifts it
 more when the fact was almost lost. A second search for the same fact
 therefore shows a higher signal.
 
-The search reads the keyword index and mixes its answer with the strength of
-each fact. The vector index waits for an embedding provider; until then it
-adds nothing.
+The search reads two indexes and mixes their answers with the strength of each
+fact. The keyword index finds the facts that hold the words. The vector index
+finds the facts that hold the sense, so a fact answers a question that shares
+no word with it:
+
+```
+$ embornal memory recall "where do my notes live"
+| Path | Signal | Fact                                     |
++------+--------+------------------------------------------+
+| /db  |  1.000 | The memory keeps everything in one file. |
+```
+
+The vector index needs a model. A memory with no model reads the keyword index
+alone. See [embeddings](embedding.md).
+
+## reindex
+
+```
+embornal memory reindex
+```
+
+Gives a vector to each fact that has none. A fact waits for one when it was
+written before the memory had a model, or when the model failed at that
+moment.
+
+```
+$ embornal memory reindex
+12 of 12 facts have a vector from embeddinggemma-300M-Q8_0
+```
+
+| Flag | Effect |
+| ---- | ------ |
+| `--limit N` | Stops after N facts. |
+| `--all` | Writes the vector of every fact again. Use this after a change of model. |
+
+The first run fetches the weights of the model, so this command is also the
+way to fetch them before they are needed.
+
+A fact that the subject may not read stays where it is.
 
 ## serve
 

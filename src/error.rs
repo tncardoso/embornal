@@ -58,6 +58,26 @@ pub enum Error {
     #[error("embedding has {got} dimensions, the database expects {want}")]
     EmbeddingWidth { want: usize, got: usize },
 
+    #[error("unknown embedding provider '{0}': use 'gguf' or 'none'")]
+    UnknownProvider(String),
+
+    /// The provider is named in the configuration, but this build cannot give
+    /// it. The message says how to go on.
+    #[error(
+        "this build has no '{0}' embedding provider: build with the 'gguf' feature, or set embedding.provider to 'none'"
+    )]
+    ProviderNotBuilt(String),
+
+    #[error("the embedding model failed: {0}")]
+    Embedding(String),
+
+    #[error("cannot fetch the embedding model {file} from {repo}: {reason}")]
+    Download {
+        repo: String,
+        file: String,
+        reason: String,
+    },
+
     #[error("path not found: {0}")]
     PathNotFound(String),
 

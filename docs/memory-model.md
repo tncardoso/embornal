@@ -79,7 +79,10 @@ The memory holds two indexes:
   defaults to 768. The width is written into the `meta` table. If the two
   disagree later, the memory stops instead of giving wrong answers.
 
-The `embedding` column starts empty. A later step fills it in.
+`store` fills the `embedding` column at the moment that it writes the fact. The
+column stays empty when the memory has no model, or when the model failed. The
+`facts_pending_embedding_idx` index holds that queue, and `embornal memory
+reindex` reads it. See [embeddings](embedding.md).
 
 ## Tags and access control
 

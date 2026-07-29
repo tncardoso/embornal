@@ -19,6 +19,9 @@ impl Sandbox {
     fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_embornal"))
             .args(args)
+            // These tests read the keyword index. Without this, each of them
+            // would fetch 300 MB of weights.
+            .env("EMBORNAL_EMBEDDING", "off")
             .env("EMBORNAL_HOME", &self.home)
             .output()
             .expect("the binary runs")
@@ -402,6 +405,75 @@ fn recall_lifts_the_signal_of_what_it_returns() {
 }
 
 #[test]
+fn reindex_says_that_the_memory_has_no_model() {
+    let sandbox = Sandbox::new("reindex-off");
+    sandbox.ok(&["memory", "store", "/db", "a fact about sqlite"]);
+
+    // The sandbox turns the model off, so nothing can fill the queue.
+    let report = sandbox.ok(&["memory", "reindex"]);
+    assert!(report.contains("no embedding model"), "{report}");
+}
+
+#[test]
+fn a_stored_fact_has_no_vector_when_the_model_is_off() {
+    let sandbox = Sandbox::new("store-no-vector");
+    sandbox.ok(&["memory", "store", "/db", "a fact about sqlite"]);
+
+    let conn = rusqlite::Connection::open(sandbox.home.join("memory.db")).unwrap();
+    let waiting: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM facts WHERE embedding IS NULL AND deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(waiting > 0, "each fact must wait for a vector");
+}
+
+/// The whole path, with the real weights.
+///
+/// This test fetches 300 MB the first time that it runs, so it waits for
+/// `cargo test -- --ignored`.
+#[test]
+#[ignore = "it needs the weights of the model"]
+fn the_real_model_finds_a_fact_by_its_sense() {
+    let home = std::env::temp_dir().join("embornal-cli-real-model");
+    std::fs::remove_dir_all(&home).ok();
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The weights are large, so every run of this test shares one copy.
+    let models = std::env::temp_dir().join("embornal-models");
+    std::fs::create_dir_all(&models).unwrap();
+    std::os::unix::fs::symlink(&models, home.join("models")).ok();
+
+    let run = |args: &[&str]| -> String {
+        let output = Command::new(env!("CARGO_BIN_EXE_embornal"))
+            .args(args)
+            .env("EMBORNAL_HOME", &home)
+            .output()
+            .expect("the binary runs");
+        assert!(
+            output.status.success(),
+            "{args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    run(&["memory", "store", "/db", "The memory keeps everything in one file."]);
+
+    // The question shares no word with the fact, so only the vector index can
+    // answer it.
+    let hits = run(&["memory", "recall", "where do my notes live"]);
+    assert!(
+        hits.contains("one file"),
+        "the vector index found nothing: {hits}"
+    );
+
+    std::fs::remove_dir_all(&home).ok();
+}
+
+#[test]
 fn a_tag_travels_from_the_command_line_to_the_policy() {
     let sandbox = Sandbox::new("tags");
     sandbox.ok(&[
@@ -508,7 +580,7 @@ fn a_link_survives_the_round_trip() {
 fn the_help_names_each_command() {
     let sandbox = Sandbox::new("help");
     let help = sandbox.ok(&["memory", "--help"]);
-    for command in ["store", "ls", "tree", "cat", "recall", "serve"] {
+    for command in ["store", "ls", "tree", "cat", "recall", "reindex", "serve"] {
         assert!(help.contains(command), "{command} is missing from the help");
     }
     assert!(sandbox.ok(&["--help"]).contains("skill"));
@@ -553,7 +625,8 @@ fn the_skill_names_only_commands_that_exist() {
                 .take_while(|c| c.is_ascii_lowercase())
                 .collect();
             assert!(
-                ["store", "ls", "tree", "cat", "recall", "serve"].contains(&name.as_str()),
+                ["store", "ls", "tree", "cat", "recall", "reindex", "serve"]
+                    .contains(&name.as_str()),
                 "the skill names '{name}', which is not a command"
             );
         }

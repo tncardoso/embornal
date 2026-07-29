@@ -4,10 +4,11 @@
 //! one method here, so the command line only reads arguments and prints
 //! results.
 
-use crate::config::Config;
+use crate::config::{Config, Paths};
+use crate::embedding::{self, Embedder, Input, Provider};
 use crate::error::{Error, Result};
 use crate::memory::acl::{AccessFilter, Action, Resource, Subject};
-use crate::memory::db::Database;
+use crate::memory::db::{Database, VEC_TABLE};
 use crate::memory::fact::{Fact, FactId, NewFact, OrderBy, ScoredFact, Signal};
 use crate::memory::guard::Guard;
 use crate::memory::path::{PathEntry, PathId, ROOT_ID, WikiPath};
@@ -15,7 +16,6 @@ use crate::memory::tag::{Tag, TagKey, TagSet, TagValue};
 use crate::memory::time;
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, ToSql, params};
-use std::path::Path;
 use ulid::Ulid;
 
 /// The columns that build a [`Fact`], and the tables that hold them.
@@ -29,6 +29,9 @@ pub struct Memory {
     db: Database,
     guard: Guard,
     config: Config,
+    /// What turns text into vectors. It loads its weights on the first call
+    /// that needs them, and never for `ls`, `cat` or `tree`.
+    embedder: Provider,
 }
 
 /// What `cat` needs to know.
@@ -72,6 +75,35 @@ impl Default for RecallOptions {
             reinforce: true,
         }
     }
+}
+
+/// How many facts go to the model at one time during a backfill.
+const REINDEX_GROUP: usize = 64;
+
+/// What `reindex` needs to know.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReindexOptions {
+    /// Stops after this many facts.
+    pub limit: Option<usize>,
+    /// Writes the vector of every fact again, not only of the facts that have
+    /// none. Use this after a change of model.
+    pub all: bool,
+}
+
+/// What `reindex` did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReindexReport {
+    /// Whether this memory has an embedding model at all.
+    ///
+    /// Without one, the queue stays as it is. The count below then says how
+    /// much work waits for a model.
+    pub has_model: bool,
+    /// How many facts had no vector.
+    pub pending: usize,
+    /// How many of them have one now.
+    pub done: usize,
+    /// The model that wrote them. `None` when nothing needed a vector.
+    pub model: Option<String>,
 }
 
 /// What `tree` needs to know.
@@ -118,21 +150,40 @@ pub struct Listing {
 }
 
 impl Memory {
-    /// Opens the memory that the configuration names.
-    pub fn open(file: &Path, config: Config) -> Result<Self> {
-        let db = Database::open(file, &config)?;
-        Self::with_database(db, config)
+    /// Opens the memory of a home directory.
+    ///
+    /// The home holds the database and the weights of the embedding model, so
+    /// the two arrive together.
+    pub fn open(paths: &Paths, config: Config) -> Result<Self> {
+        let db = Database::open(&config.database_file(paths), &config)?;
+        let embedder = Provider::from_config(&config, paths)?;
+        Self::with_database(db, config, embedder)
     }
 
-    /// Opens a memory in RAM. The tests use this.
+    /// Opens a memory in RAM.
+    ///
+    /// The memory runs without vectors. The tests use this, so that they
+    /// reach for no weights. Use [`Memory::with_embedder`] to give it one.
     pub fn open_in_memory(config: Config) -> Result<Self> {
         let db = Database::open_in_memory(&config)?;
-        Self::with_database(db, config)
+        Self::with_database(db, config, Provider::off())
     }
 
-    fn with_database(db: Database, config: Config) -> Result<Self> {
+    /// Puts an embedder in a memory that has none. The tests use this.
+    #[must_use]
+    pub fn with_embedder(mut self, embedder: Box<dyn Embedder>) -> Self {
+        self.embedder = Provider::ready(embedder);
+        self
+    }
+
+    fn with_database(db: Database, config: Config, embedder: Provider) -> Result<Self> {
         let guard = Guard::load(db.conn(), config.subject.clone())?;
-        Ok(Self { db, guard, config })
+        Ok(Self {
+            db,
+            guard,
+            config,
+            embedder,
+        })
     }
 
     pub fn config(&self) -> &Config {
@@ -196,7 +247,7 @@ impl Memory {
         }
         tx.commit()?;
 
-        Ok(Fact {
+        let mut fact = Fact {
             id: fact_id,
             ulid,
             path_id,
@@ -207,7 +258,37 @@ impl Memory {
             supersedes_id: request.supersedes_id,
             deleted_at: None,
             embedding_model: None,
-        })
+        };
+
+        // The fact is already written. A model that fails must not take it
+        // away, so the failure is a warning and the fact waits in the queue
+        // that `reindex` reads.
+        match self.embed_fact(&fact) {
+            Ok(model) => fact.embedding_model = model,
+            Err(err) => eprintln!("embornal: the fact is stored, but it has no vector: {err}"),
+        }
+        Ok(fact)
+    }
+
+    /// Writes the vector of one fact, if this memory has a model.
+    ///
+    /// It gives back the name of the model that wrote the vector, or `None`
+    /// when the memory runs without vectors.
+    fn embed_fact(&mut self, fact: &Fact) -> Result<Option<String>> {
+        if self.embedder.is_off() {
+            return Ok(None);
+        }
+        let Some(embedder) = self.embedder.get()? else {
+            return Ok(None);
+        };
+
+        let vector = embedder.embed_one(Input::Document {
+            path: &fact.path,
+            content: &fact.content,
+        })?;
+        let model = embedder.model_name().to_string();
+        write_embedding(self.db.conn_mut(), fact.id, &vector, &model)?;
+        Ok(Some(model))
     }
 
     // -----------------------------------------------------------------------
@@ -344,8 +425,12 @@ impl Memory {
 
     /// Searches the memory.
     ///
-    /// With a query, the keyword index answers and the strength of each fact
-    /// moves it up or down. With no query, the strongest facts come back.
+    /// With a query, two indexes answer. The keyword index finds the facts
+    /// that hold the words. The vector index finds the facts that hold the
+    /// sense, even when they share no word with the question. The strength of
+    /// each fact then moves it up or down.
+    ///
+    /// With no query, the strongest facts come back.
     pub fn recall(
         &mut self,
         query: Option<&str>,
@@ -375,22 +460,76 @@ impl Memory {
         Ok(scored)
     }
 
-    /// Runs the keyword index and mixes its answer with the strength.
+    /// Asks both indexes and mixes their answers with the strength.
     fn search(
-        &self,
+        &mut self,
         query: &str,
         filter: &AccessFilter,
         options: &RecallOptions,
         now: DateTime<Utc>,
     ) -> Result<Vec<ScoredFact>> {
+        let keyword = self.by_keyword(query, filter, options)?;
+        let vector = self.by_vector(query, filter, options)?;
+
+        let weights = &self.config.recall;
+        let mut mixed: Vec<ScoredFact> = Vec::new();
+        // The facts that both indexes found must appear one time, so a fact
+        // that arrives again only takes the score that it was missing.
+        let mut seen: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
+
+        for (fact, keyword_score, vector_score) in keyword
+            .into_iter()
+            .map(|(fact, score)| (fact, Some(score), None))
+            .chain(
+                vector
+                    .into_iter()
+                    .map(|(fact, score)| (fact, None, Some(score))),
+            )
+        {
+            match seen.get(&fact.id.0) {
+                Some(&at) => {
+                    let entry: &mut ScoredFact = &mut mixed[at];
+                    entry.keyword_score = entry.keyword_score.or(keyword_score);
+                    entry.vector_score = entry.vector_score.or(vector_score);
+                }
+                None => {
+                    seen.insert(fact.id.0, mixed.len());
+                    let strength = fact.signal.strength_at(now);
+                    mixed.push(ScoredFact {
+                        score: 0.0,
+                        fact,
+                        keyword_score,
+                        vector_score,
+                        signal_strength: strength,
+                    });
+                }
+            }
+        }
+
+        // A fact that only one index found scores zero on the other one. That
+        // is the point of the mix: a fact that both indexes name rises above
+        // a fact that only one of them names.
+        for entry in &mut mixed {
+            entry.score = weights.keyword_weight * entry.keyword_score.unwrap_or(0.0)
+                + weights.vector_weight * entry.vector_score.unwrap_or(0.0)
+                + weights.signal_weight * entry.signal_strength;
+        }
+        Ok(mixed)
+    }
+
+    /// Reads the keyword index.
+    fn by_keyword(
+        &self,
+        query: &str,
+        filter: &AccessFilter,
+        options: &RecallOptions,
+    ) -> Result<Vec<(Fact, f64)>> {
         let expression = fts_query(query);
         if expression.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Take more candidates than the caller wants, because the mix with the
-        // strength changes the order.
-        let candidates = (options.limit * 4).max(50) as i64;
+        let candidates = candidate_count(options);
         let (subtree, subtree_params) = subtree_clause(options.under.as_ref());
 
         let sql = format!(
@@ -422,33 +561,84 @@ impl Memory {
             let rank: f64 = row.get(12)?;
             Ok((fact, rank))
         })?;
+        let hits: Vec<(Fact, f64)> = rows.collect::<rusqlite::Result<_>>()?;
 
         // bm25 gives a negative number, and the best match is the smallest.
-        let hits: Vec<(Fact, f64)> = rows.collect::<rusqlite::Result<_>>()?;
-        let best = hits.iter().map(|(_, rank)| *rank).fold(f64::MAX, f64::min);
-        let worst = hits.iter().map(|(_, rank)| *rank).fold(f64::MIN, f64::max);
-        let spread = (worst - best).abs();
+        Ok(rescale(hits))
+    }
 
-        let weights = &self.config.recall;
-        Ok(hits
+    /// Reads the vector index.
+    ///
+    /// A memory with no model gives back nothing here, and `recall` then works
+    /// exactly as it did before the model arrived.
+    fn by_vector(
+        &mut self,
+        query: &str,
+        filter: &AccessFilter,
+        options: &RecallOptions,
+    ) -> Result<Vec<(Fact, f64)>> {
+        if self.embedder.is_off() {
+            return Ok(Vec::new());
+        }
+        let Some(embedder) = self.embedder.get()? else {
+            return Ok(Vec::new());
+        };
+        let vector = embedder.embed_one(Input::Query(query))?;
+        let blob = embedding::to_blob(&vector);
+
+        let candidates = candidate_count(options);
+        let (subtree, subtree_params) = subtree_clause(options.under.as_ref());
+
+        // The vector index answers on its own: it takes no join and no other
+        // condition beside the width. The facts that the reader may not see
+        // therefore fall away below, and they use up places of `k`. Asking for
+        // more places than the caller wants pays for that.
+        let sql = format!(
+            "WITH knn AS (
+                 SELECT fact_id, distance FROM {VEC_TABLE}
+                 WHERE embedding MATCH ? AND k = ?
+             )
+             SELECT f.id, f.ulid, f.path_id, p.full_path, f.content, f.created_at,
+                    f.last_recall_at, f.recall_count, f.stability_days,
+                    f.supersedes_id, f.deleted_at, f.embedding_model,
+                    knn.distance AS rank
+             FROM knn
+             JOIN facts f ON f.id = knn.fact_id
+             JOIN paths p ON p.id = f.path_id
+             WHERE f.deleted_at IS NULL AND ({}){subtree}
+             ORDER BY rank",
+            filter.sql()
+        );
+
+        let mut bound: Vec<&dyn ToSql> = vec![&blob, &candidates];
+        for value in filter.params() {
+            bound.push(value);
+        }
+        for value in &subtree_params {
+            bound.push(value);
+        }
+
+        let mut stmt = self.db.conn().prepare(&sql)?;
+        let rows = stmt.query_map(bound.as_slice(), |row| {
+            let fact = fact_from_row(row)?;
+            let distance: f64 = row.get(12)?;
+            Ok((fact, distance))
+        })?;
+
+        let mut hits: Vec<(Fact, f64)> = rows
+            .collect::<rusqlite::Result<Vec<(Fact, f64)>>>()?
             .into_iter()
-            .map(|(fact, rank)| {
-                // Map the best match to 1.0 and the worst to 0.0.
-                let keyword = if spread < f64::EPSILON {
-                    1.0
-                } else {
-                    (worst - rank) / spread
-                };
-                let strength = fact.signal.strength_at(now);
-                ScoredFact {
-                    score: weights.keyword_weight * keyword + weights.signal_weight * strength,
-                    fact,
-                    keyword_score: Some(keyword),
-                    vector_score: None,
-                    signal_strength: strength,
-                }
-            })
-            .collect())
+            .map(|(fact, distance)| (fact, similarity(distance)))
+            .collect();
+
+        // The index gives the nearest facts even when none of them is near.
+        // Without a cut, a question that the memory cannot answer would still
+        // come back full.
+        let weights = &self.config.recall;
+        let best = hits.iter().map(|(_, score)| *score).fold(f64::MIN, f64::max);
+        let cut = weights.vector_floor.max(best * weights.vector_share);
+        hits.retain(|(_, score)| *score >= cut);
+        Ok(hits)
     }
 
     /// Returns the facts that are still strongest.
@@ -489,6 +679,97 @@ impl Memory {
                 }
             })
             .collect())
+    }
+
+    // -----------------------------------------------------------------------
+    // reindex
+    // -----------------------------------------------------------------------
+
+    /// Gives a vector to each fact that has none.
+    ///
+    /// A fact reaches the queue when it was written before the memory had a
+    /// model, or when the model failed at the moment of writing. With
+    /// [`ReindexOptions::all`], every fact goes back into the queue first,
+    /// which is how a memory moves to another model.
+    ///
+    /// A fact that the reader may not see stays where it is.
+    pub fn reindex(&mut self, options: ReindexOptions) -> Result<ReindexReport> {
+        let has_model = !self.embedder.is_off();
+
+        // Throwing the vectors away without a model to write new ones would
+        // leave the memory worse than it was.
+        if options.all && has_model {
+            let tx = self.db.conn_mut().transaction()?;
+            tx.execute(&format!("DELETE FROM {VEC_TABLE}"), [])?;
+            tx.execute(
+                "UPDATE facts SET embedding = NULL, embedding_model = NULL
+                 WHERE embedding IS NOT NULL",
+                [],
+            )?;
+            tx.commit()?;
+        }
+
+        let filter = self.guard.filter(Action::Read);
+        if filter.is_empty_set() {
+            return Ok(ReindexReport {
+                has_model,
+                ..ReindexReport::default()
+            });
+        }
+
+        let sql = format!(
+            "{FACT_SELECT} WHERE f.embedding IS NULL AND f.deleted_at IS NULL AND ({})
+             ORDER BY f.id",
+            filter.sql()
+        );
+        let mut bound: Vec<&dyn ToSql> = Vec::new();
+        for value in filter.params() {
+            bound.push(value);
+        }
+
+        let mut stmt = self.db.conn().prepare(&sql)?;
+        let rows = stmt.query_map(bound.as_slice(), fact_from_row)?;
+        let mut pending: Vec<Fact> = rows.collect::<rusqlite::Result<_>>()?;
+        drop(stmt);
+
+        if let Some(limit) = options.limit {
+            pending.truncate(limit);
+        }
+        let mut report = ReindexReport {
+            has_model,
+            pending: pending.len(),
+            done: 0,
+            model: None,
+        };
+        // A memory with no model still counts the queue, so that the reader
+        // learns how much work a model would find here.
+        if pending.is_empty() || !has_model {
+            return Ok(report);
+        }
+
+        // The facts go in groups, so that a failure in the middle keeps the
+        // work that came before it.
+        for group in pending.chunks(REINDEX_GROUP) {
+            let Some(embedder) = self.embedder.get()? else {
+                return Ok(report);
+            };
+            let inputs: Vec<Input<'_>> = group
+                .iter()
+                .map(|fact| Input::Document {
+                    path: &fact.path,
+                    content: &fact.content,
+                })
+                .collect();
+            let vectors = embedder.embed(&inputs)?;
+            let model = embedder.model_name().to_string();
+
+            for (fact, vector) in group.iter().zip(vectors) {
+                write_embedding(self.db.conn_mut(), fact.id, &vector, &model)?;
+                report.done += 1;
+            }
+            report.model = Some(model);
+        }
+        Ok(report)
     }
 
     // -----------------------------------------------------------------------
@@ -648,6 +929,84 @@ fn prune_leaves(node: &mut TreeNode) {
     }
 }
 
+/// How many facts one index gives back before the mix.
+///
+/// It is more than the caller wants, because the mix with the other index and
+/// with the strength changes the order.
+fn candidate_count(options: &RecallOptions) -> i64 {
+    (options.limit * 4).max(50) as i64
+}
+
+/// Turns the distance of the vector index into a score.
+///
+/// The vectors have a length of one, and the index measures the straight
+/// distance `d` between two of them. For such vectors the angle gives
+/// `cos = 1 - d² / 2`, which is 1.0 for two texts that say the same, 0.0 for
+/// two texts with nothing in common, and -1.0 for two texts that say the
+/// opposite.
+///
+/// This is an absolute scale, so it needs no other hit to make sense of it.
+/// The keyword index has no such scale, which is why [`rescale`] exists for
+/// that one alone.
+fn similarity(distance: f64) -> f64 {
+    1.0 - (distance * distance) / 2.0
+}
+
+/// Turns the rank of the keyword index into a number from 0.0 to 1.0.
+///
+/// bm25 gives a negative number, and the best match is the smallest. The
+/// number says nothing on its own: it depends on the words of the question
+/// and on the whole memory. This therefore maps the best hit of the list to
+/// 1.0 and the worst to 0.0.
+///
+/// A list of one hit, or a list where every hit ties, scores 1.0 throughout:
+/// with no spread there is nothing to tell the hits apart.
+fn rescale(hits: Vec<(Fact, f64)>) -> Vec<(Fact, f64)> {
+    let best = hits.iter().map(|(_, rank)| *rank).fold(f64::MAX, f64::min);
+    let worst = hits.iter().map(|(_, rank)| *rank).fold(f64::MIN, f64::max);
+    let spread = (worst - best).abs();
+
+    hits.into_iter()
+        .map(|(fact, rank)| {
+            let score = if spread < f64::EPSILON {
+                1.0
+            } else {
+                (worst - rank) / spread
+            };
+            (fact, score)
+        })
+        .collect()
+}
+
+/// Writes the vector of one fact, in the table and in the vector index.
+///
+/// The two writes go together: a row of the index that names a fact with no
+/// vector would make the two disagree.
+fn write_embedding(
+    conn: &mut Connection,
+    fact: FactId,
+    vector: &[f32],
+    model: &str,
+) -> Result<()> {
+    let blob = embedding::to_blob(vector);
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE facts SET embedding = ?, embedding_model = ? WHERE id = ?",
+        params![blob, model, fact.0],
+    )?;
+    // A fact that already had a vector gets a new one, so the old row goes.
+    tx.execute(
+        &format!("DELETE FROM {VEC_TABLE} WHERE fact_id = ?"),
+        params![fact.0],
+    )?;
+    tx.execute(
+        &format!("INSERT INTO {VEC_TABLE}(fact_id, embedding) VALUES (?, ?)"),
+        params![fact.0, blob],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 /// Creates the path and every path above it that is still absent.
 fn ensure_path(tx: &Connection, path: &WikiPath, now: DateTime<Utc>) -> Result<PathId> {
     let mut parent = ROOT_ID;
@@ -770,6 +1129,112 @@ mod tests {
                 tags: Vec::new(),
                 supersedes_id: None,
             })
+            .unwrap()
+    }
+
+    // -- the fake model -----------------------------------------------------
+
+    /// How many topics [`Topics`] knows. It is also the width of its vectors.
+    const TOPICS: usize = 4;
+
+    /// The words that put a text into a topic. The last topic holds every
+    /// text that no word of the lists above reaches.
+    const TOPIC_WORDS: [&[&str]; TOPICS] = [
+        &["sqlite", "database", "row", "table"],
+        &["rust", "cargo", "crate"],
+        &["signal", "strength", "forget"],
+        &[],
+    ];
+
+    /// A model that puts a text into one topic and gives back the corner of
+    /// the space that the topic owns.
+    ///
+    /// Two texts of one topic sit in the same place, so a test can say what
+    /// the vector index must find without a 300 MB file of weights.
+    struct Topics;
+
+    impl Embedder for Topics {
+        fn embed(&mut self, inputs: &[Input<'_>]) -> Result<Vec<Vec<f32>>> {
+            inputs
+                .iter()
+                .map(|input| {
+                    let text = input.prompt().to_lowercase();
+                    let topic = TOPIC_WORDS
+                        .iter()
+                        .position(|words| words.iter().any(|word| text.contains(word)))
+                        .unwrap_or(TOPICS - 1);
+                    let mut vector = vec![0.0f32; TOPICS];
+                    vector[topic] = 1.0;
+                    embedding::shape(vector, TOPICS)
+                })
+                .collect()
+        }
+
+        fn dimensions(&self) -> usize {
+            TOPICS
+        }
+
+        fn model_name(&self) -> &str {
+            "topics"
+        }
+    }
+
+    /// A model that never answers.
+    struct Broken;
+
+    impl Embedder for Broken {
+        fn embed(&mut self, _inputs: &[Input<'_>]) -> Result<Vec<Vec<f32>>> {
+            Err(Error::Embedding("this model is broken".to_string()))
+        }
+
+        fn dimensions(&self) -> usize {
+            TOPICS
+        }
+
+        fn model_name(&self) -> &str {
+            "broken"
+        }
+    }
+
+    /// A memory whose vector index is as wide as the fake model.
+    fn narrow_memory() -> Memory {
+        let mut config = Config::default();
+        config.embedding.dimensions = TOPICS;
+        Memory::open_in_memory(config).unwrap()
+    }
+
+    /// A memory that embeds each fact with [`Topics`].
+    fn memory_with_vectors() -> Memory {
+        narrow_memory().with_embedder(Box::new(Topics))
+    }
+
+    /// Reads the vector that a fact holds, if it holds one.
+    fn stored_vector(memory: &Memory, fact: FactId) -> Option<(Vec<u8>, String)> {
+        memory
+            .database()
+            .conn()
+            .query_row(
+                "SELECT embedding, embedding_model FROM facts WHERE id = ?",
+                [fact.0],
+                |row| {
+                    Ok(row
+                        .get::<_, Option<Vec<u8>>>(0)?
+                        .zip(row.get::<_, Option<String>>(1)?))
+                },
+            )
+            .unwrap()
+    }
+
+    /// How many rows the vector index holds for a fact.
+    fn indexed(memory: &Memory, fact: FactId) -> i64 {
+        memory
+            .database()
+            .conn()
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {VEC_TABLE} WHERE fact_id = ?"),
+                [fact.0],
+                |row| row.get(0),
+            )
             .unwrap()
     }
 
@@ -1167,6 +1632,303 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    // -- the vectors --------------------------------------------------------
+
+    #[test]
+    fn a_store_writes_the_vector_of_the_fact() {
+        let mut memory = memory_with_vectors();
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+
+        assert_eq!(fact.embedding_model.as_deref(), Some("topics"));
+        let (blob, model) = stored_vector(&memory, fact.id).expect("the fact holds a vector");
+        // Four numbers of four bytes each.
+        assert_eq!(blob.len(), TOPICS * 4);
+        assert_eq!(model, "topics");
+        assert_eq!(indexed(&memory, fact.id), 1);
+    }
+
+    #[test]
+    fn a_memory_with_no_model_leaves_the_vector_empty() {
+        let mut memory = narrow_memory();
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+
+        assert_eq!(fact.embedding_model, None);
+        assert!(stored_vector(&memory, fact.id).is_none());
+        assert_eq!(indexed(&memory, fact.id), 0);
+    }
+
+    #[test]
+    fn a_model_that_fails_does_not_lose_the_fact() {
+        let mut memory = narrow_memory().with_embedder(Box::new(Broken));
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+
+        // The fact is written, and it waits for the backfill.
+        assert_eq!(fact.embedding_model, None);
+        let found = memory.cat(&path("/db"), CatOptions::default()).unwrap();
+        assert_eq!(found.len(), 1);
+        assert!(stored_vector(&memory, fact.id).is_none());
+    }
+
+    #[test]
+    fn recall_finds_a_fact_that_shares_no_word_with_the_question() {
+        let mut memory = memory_with_vectors();
+        write(&mut memory, "/db", "The memory uses SQLite.");
+        write(&mut memory, "/lang", "The tool is written in Rust.");
+
+        // "database" appears in neither fact, so the keyword index says
+        // nothing. Only the vector index can answer.
+        let hits = memory
+            .recall(Some("database"), RecallOptions::default())
+            .unwrap();
+
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].fact.content, "The memory uses SQLite.");
+        assert!(hits[0].vector_score.is_some());
+        assert!(hits[0].keyword_score.is_none());
+    }
+
+    #[test]
+    fn without_a_model_that_same_question_finds_nothing() {
+        // This is the other half of the test above: it shows that the vector
+        // index, and not something else, gave the answer.
+        let mut memory = narrow_memory();
+        write(&mut memory, "/db", "The memory uses SQLite.");
+
+        let hits = memory
+            .recall(Some("database"), RecallOptions::default())
+            .unwrap();
+        assert!(hits.is_empty(), "{hits:?}");
+    }
+
+    #[test]
+    fn a_fact_that_both_indexes_find_rises_above_one_that_only_one_finds() {
+        let mut memory = memory_with_vectors();
+        write(&mut memory, "/a", "The database holds every row.");
+        write(&mut memory, "/b", "One table for each topic.");
+
+        // Both facts sit in the same topic, so the vector index gives them
+        // the same place. Only the first holds the word.
+        let hits = memory
+            .recall(Some("database"), RecallOptions::default())
+            .unwrap();
+
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        assert_eq!(hits[0].fact.content, "The database holds every row.");
+        assert!(hits[0].keyword_score.is_some());
+        assert!(hits[0].vector_score.is_some());
+        assert!(hits[0].score > hits[1].score);
+    }
+
+    #[test]
+    fn a_deleted_fact_stays_out_of_the_vector_answer() {
+        let mut memory = memory_with_vectors();
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+        memory
+            .database()
+            .conn()
+            .execute(
+                "UPDATE facts SET deleted_at = '2026-01-01T00:00:00.000000Z' WHERE id = ?",
+                [fact.id.0],
+            )
+            .unwrap();
+
+        let hits = memory
+            .recall(Some("database"), RecallOptions::default())
+            .unwrap();
+        assert!(hits.is_empty(), "{hits:?}");
+    }
+
+    #[test]
+    fn the_floor_holds_back_an_answer_where_nothing_is_near() {
+        let far = |floor: f64| {
+            let mut config = Config::default();
+            config.embedding.dimensions = TOPICS;
+            config.recall.vector_floor = floor;
+            let mut memory = Memory::open_in_memory(config)
+                .unwrap()
+                .with_embedder(Box::new(Topics));
+            write(&mut memory, "/lang", "The tool is written in Rust.");
+            memory
+                .recall(Some("database"), RecallOptions::default())
+                .unwrap()
+                .len()
+        };
+
+        // The fact sits in another topic, so it has nothing in common with
+        // the question and scores 0.0. The whole answer is bad, and the share
+        // alone would still give the best of it.
+        assert_eq!(far(0.15), 0);
+        // A floor below that lets it in, which shows that the floor, and not
+        // something else, held it back.
+        assert_eq!(far(-1.0), 1);
+    }
+
+    #[test]
+    fn the_share_drops_the_tail_of_a_good_answer() {
+        let mut config = Config::default();
+        config.embedding.dimensions = TOPICS;
+        config.recall.keyword_weight = 0.0;
+        config.recall.signal_weight = 0.0;
+        // The floor lets everything through, so the share alone decides.
+        config.recall.vector_floor = -1.0;
+        config.recall.vector_share = 0.5;
+        let mut memory = Memory::open_in_memory(config)
+            .unwrap()
+            .with_embedder(Box::new(Topics));
+
+        write(&mut memory, "/a", "The database holds every row.");
+        write(&mut memory, "/b", "The tool is written in Rust.");
+
+        // The first fact shares the topic of the question and scores 1.0.
+        // The second is in another topic and scores 0.0, which is below half
+        // of the best.
+        let hits = memory
+            .recall(Some("database"), RecallOptions::default())
+            .unwrap();
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].fact.content, "The database holds every row.");
+    }
+
+    #[test]
+    fn the_distance_of_the_index_becomes_an_angle() {
+        // Two vectors that point the same way.
+        assert!((similarity(0.0) - 1.0).abs() < 1e-9);
+        // Two vectors at a right angle. Their distance is the root of two.
+        assert!(similarity(2.0f64.sqrt()).abs() < 1e-9);
+        // Two vectors that point against each other.
+        assert!((similarity(2.0) + 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn recall_holds_the_weights_of_the_configuration() {
+        let mut config = Config::default();
+        config.embedding.dimensions = TOPICS;
+        // The vector index alone decides the order.
+        config.recall.keyword_weight = 0.0;
+        config.recall.signal_weight = 0.0;
+        config.recall.vector_weight = 1.0;
+        let mut memory = Memory::open_in_memory(config)
+            .unwrap()
+            .with_embedder(Box::new(Topics));
+
+        write(&mut memory, "/a", "The database holds every row.");
+        let hits = memory
+            .recall(Some("database"), RecallOptions::default())
+            .unwrap();
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].score, hits[0].vector_score.unwrap());
+    }
+
+    // -- reindex ------------------------------------------------------------
+
+    #[test]
+    fn reindex_fills_the_facts_that_wait_in_the_queue() {
+        // The facts arrive before the model does.
+        let mut memory = narrow_memory();
+        let first = write(&mut memory, "/db", "The memory uses SQLite.");
+        let second = write(&mut memory, "/lang", "The tool is written in Rust.");
+        assert!(stored_vector(&memory, first.id).is_none());
+
+        let mut memory = memory.with_embedder(Box::new(Topics));
+        let report = memory.reindex(ReindexOptions::default()).unwrap();
+
+        // The seeded facts of /memory wait in the queue as well.
+        assert!(report.pending >= 2);
+        assert_eq!(report.done, report.pending);
+        assert_eq!(report.model.as_deref(), Some("topics"));
+        for fact in [first.id, second.id] {
+            assert!(stored_vector(&memory, fact).is_some());
+            assert_eq!(indexed(&memory, fact), 1);
+        }
+    }
+
+    #[test]
+    fn a_second_reindex_has_nothing_to_do() {
+        let mut memory = memory_with_vectors();
+        write(&mut memory, "/db", "The memory uses SQLite.");
+        memory.reindex(ReindexOptions::default()).unwrap();
+
+        let report = memory.reindex(ReindexOptions::default()).unwrap();
+        assert_eq!(report.pending, 0);
+        assert_eq!(report.done, 0);
+        assert_eq!(report.model, None);
+    }
+
+    #[test]
+    fn reindex_stops_at_the_limit() {
+        let mut memory = narrow_memory();
+        write(&mut memory, "/a", "one");
+        write(&mut memory, "/b", "two");
+
+        let mut memory = memory.with_embedder(Box::new(Topics));
+        let report = memory
+            .reindex(ReindexOptions {
+                limit: Some(1),
+                all: false,
+            })
+            .unwrap();
+        assert_eq!(report.pending, 1);
+        assert_eq!(report.done, 1);
+    }
+
+    #[test]
+    fn reindex_with_all_writes_every_vector_again() {
+        let mut memory = memory_with_vectors();
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+        memory.reindex(ReindexOptions::default()).unwrap();
+
+        let report = memory
+            .reindex(ReindexOptions {
+                limit: None,
+                all: true,
+            })
+            .unwrap();
+
+        // Every fact went back into the queue, the seeded ones included.
+        assert!(report.pending > 1);
+        assert_eq!(report.done, report.pending);
+        assert_eq!(indexed(&memory, fact.id), 1);
+    }
+
+    #[test]
+    fn reindex_counts_the_queue_but_writes_nothing_without_a_model() {
+        let mut memory = narrow_memory();
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+
+        let report = memory.reindex(ReindexOptions::default()).unwrap();
+        assert!(!report.has_model);
+        assert!(report.pending > 0);
+        assert_eq!(report.done, 0);
+        assert_eq!(report.model, None);
+        assert!(stored_vector(&memory, fact.id).is_none());
+    }
+
+    #[test]
+    fn reindex_with_all_keeps_the_vectors_when_there_is_no_model() {
+        // The facts get their vectors, and then the model goes away.
+        let mut memory = memory_with_vectors();
+        let fact = write(&mut memory, "/db", "The memory uses SQLite.");
+        let before = stored_vector(&memory, fact.id).expect("the fact holds a vector");
+
+        let mut memory = Memory {
+            embedder: Provider::off(),
+            ..memory
+        };
+        let report = memory
+            .reindex(ReindexOptions {
+                limit: None,
+                all: true,
+            })
+            .unwrap();
+
+        assert!(!report.has_model);
+        // Throwing the vectors away with nothing to write new ones would
+        // leave the memory worse than it was.
+        assert_eq!(stored_vector(&memory, fact.id), Some(before));
+        assert_eq!(indexed(&memory, fact.id), 1);
     }
 
     // -- recall -------------------------------------------------------------

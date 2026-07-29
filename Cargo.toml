@@ -3,12 +3,20 @@ name = "embornal"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["gguf"]
+# The embedding model that runs in this process. It builds llama.cpp, which
+# needs cmake and a C++ compiler. Turn it off for a fast build.
+gguf = ["dep:llama-cpp-2", "dep:hf-hub"]
+
 [dependencies]
 axum = "0.8.9"
 casbin = { version = "2.20.0", default-features = false, features = ["runtime-tokio", "incremental", "cached"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.4", features = ["derive"] }
 dirs = "6.0.0"
+hf-hub = { version = "1", features = ["blocking"], optional = true }
+llama-cpp-2 = { version = "0.1", optional = true }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_norway = "0.9.42"

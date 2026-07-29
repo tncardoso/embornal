@@ -7,7 +7,10 @@
 use crate::cli::table::{Align, Table};
 use crate::cli::write_error;
 use crate::error::{Error, Result};
-use crate::memory::api::{CatOptions, Listing, Memory, RecallOptions, TreeNode, TreeOptions};
+use crate::memory::api::{
+    CatOptions, Listing, Memory, RecallOptions, ReindexOptions, ReindexReport, TreeNode,
+    TreeOptions,
+};
 use crate::memory::fact::{Fact, NewFact, OrderBy, ScoredFact};
 use crate::memory::link::{self, Segment};
 use crate::memory::path::WikiPath;
@@ -30,6 +33,8 @@ pub enum MemoryCommand {
     Cat(CatArgs),
     /// Searches the memory.
     Recall(RecallArgs),
+    /// Gives a vector to each fact that has none.
+    Reindex(ReindexArgs),
     /// Starts the wiki server.
     Serve(ServeArgs),
 }
@@ -99,6 +104,17 @@ pub struct RecallArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ReindexArgs {
+    /// Stops after this many facts.
+    #[arg(long, value_name = "N")]
+    pub limit: Option<usize>,
+    /// Writes the vector of every fact again. Use this after a change of
+    /// model.
+    #[arg(long)]
+    pub all: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct ServeArgs {
     /// The port to listen on.
     #[arg(long, default_value_t = SERVE_PORT)]
@@ -113,6 +129,7 @@ pub fn run(command: MemoryCommand, memory: Memory, out: &mut impl Write) -> Resu
         MemoryCommand::Tree(args) => tree(args, memory, out),
         MemoryCommand::Cat(args) => cat(args, memory, out),
         MemoryCommand::Recall(args) => recall(args, memory, out),
+        MemoryCommand::Reindex(args) => reindex(args, memory, out),
         MemoryCommand::Serve(args) => serve(args, memory),
     }
 }
@@ -203,6 +220,15 @@ pub fn recall(args: RecallArgs, mut memory: Memory, out: &mut impl Write) -> Res
     } else {
         print_hits(&hits, args.scores, out)
     }
+}
+
+/// `embornal memory reindex`
+pub fn reindex(args: ReindexArgs, mut memory: Memory, out: &mut impl Write) -> Result<()> {
+    let report = memory.reindex(ReindexOptions {
+        limit: args.limit,
+        all: args.all,
+    })?;
+    print_reindex(&report, out)
 }
 
 /// `embornal memory serve`
@@ -319,6 +345,28 @@ pub fn print_hits(hits: &[ScoredFact], scores: bool, out: &mut impl Write) -> Re
         table.row(row);
     }
     table.render(out)
+}
+
+/// Says what the backfill did.
+pub fn print_reindex(report: &ReindexReport, out: &mut impl Write) -> Result<()> {
+    if !report.has_model {
+        return writeln!(
+            out,
+            "{} facts wait for a vector, but this memory has no embedding model",
+            report.pending
+        )
+        .map_err(write_error);
+    }
+    let Some(model) = &report.model else {
+        return writeln!(out, "each fact has a vector").map_err(write_error);
+    };
+
+    writeln!(
+        out,
+        "{} of {} facts have a vector from {model}",
+        report.done, report.pending
+    )
+    .map_err(write_error)
 }
 
 /// Prints one fact for each line, with no table.

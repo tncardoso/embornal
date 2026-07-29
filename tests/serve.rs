@@ -32,6 +32,9 @@ impl Server {
             let status = Command::new(env!("CARGO_BIN_EXE_embornal"))
                 .args(["memory", "store"])
                 .args(store)
+                // These tests read the keyword index. Without this, each of
+                // them would fetch 300 MB of weights.
+                .env("EMBORNAL_EMBEDDING", "off")
                 .env("EMBORNAL_HOME", &home)
                 .status()
                 .unwrap();
@@ -40,6 +43,7 @@ impl Server {
 
         let mut child = Command::new(env!("CARGO_BIN_EXE_embornal"))
             .args(["memory", "serve", "--port", &port.to_string()])
+            .env("EMBORNAL_EMBEDDING", "off")
             .env("EMBORNAL_HOME", &home)
             .stdout(Stdio::piped())
             .spawn()

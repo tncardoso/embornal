@@ -62,8 +62,7 @@ fn open_memory(subject: Option<String>) -> Result<Memory> {
     if let Some(name) = subject {
         config.subject = Subject::new(name);
     }
-    let file = config.database_file(&paths);
-    Memory::open(&file, config)
+    Memory::open(&paths, config)
 }
 
 /// Turns an error of the writer into an error of the tool.
