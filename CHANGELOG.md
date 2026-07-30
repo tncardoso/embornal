@@ -5,7 +5,7 @@ All notable changes to Embornal are in this file.
 The format is based on [Keep a Changelog][kac], and this project uses
 [Semantic Versioning][semver].
 
-## [Unreleased]
+## [0.1.0] - 2026-07-30
 
 ### Added
 
