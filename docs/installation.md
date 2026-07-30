@@ -1,3 +1,7 @@
+---
+icon: lucide/download
+---
+
 # Installation
 
 Embornal is one binary. It holds the memory, the wiki and the embedding model,
@@ -90,7 +94,7 @@ A machine with no C++ toolchain builds the memory without the model:
 cargo install embornal --no-default-features
 ```
 
-Such a build searches by keyword alone. See [embeddings](embedding.md).
+Such a build searches by keyword alone. See [embeddings](memory/embeddings.md).
 
 ## By hand
 
@@ -122,7 +126,7 @@ To fetch them at a moment of your choice:
 embornal memory reindex
 ```
 
-See [embeddings](embedding.md) for a memory that must ask the network nothing.
+See [embeddings](memory/embeddings.md) for a memory that must ask the network nothing.
 
 ## Update
 
