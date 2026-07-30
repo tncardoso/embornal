@@ -1,3 +1,7 @@
+---
+icon: lucide/tag
+---
+
 # Releasing
 
 A release starts with a tag. Everything after the tag is automatic: the CI

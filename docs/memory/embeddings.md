@@ -54,7 +54,7 @@ $ embornal memory store /db "The memory uses SQLite."
 embornal: the fact is stored, but it has no vector: ...
 ```
 
-`reindex` reads that queue. See [the commands](memory-cli.md).
+`reindex` reads that queue. See [the commands](cli.md).
 
 ## The task prefix
 

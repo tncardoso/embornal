@@ -195,7 +195,7 @@ other. The search drops such a word from the question, so that a fact which
 holds nothing else of the question stays out of the answer.
 
 The vector index needs a model. A memory with no model reads the keyword index
-alone. See [embeddings](embedding.md).
+alone. See [embeddings](embeddings.md).
 
 ## reindex
 

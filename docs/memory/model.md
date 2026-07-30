@@ -82,7 +82,7 @@ The memory holds two indexes:
 `store` fills the `embedding` column at the moment that it writes the fact. The
 column stays empty when the memory has no model, or when the model failed. The
 `facts_pending_embedding_idx` index holds that queue, and `embornal memory
-reindex` reads it. See [embeddings](embedding.md).
+reindex` reads it. See [embeddings](embeddings.md).
 
 ## Tags and access control
 
