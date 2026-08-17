@@ -52,15 +52,19 @@ impl Drop for Sandbox {
     }
 }
 
-/// A machine that has no `EMBORNAL_HOME`, so that the binary reads the XDG
-/// directories the way a real installation does.
-struct XdgSandbox {
+/// A machine that has no `EMBORNAL_HOME`, so that the binary reads the
+/// directories of the system the way a real installation does.
+///
+/// Linux reads the XDG variables. macOS ignores them and puts the files below
+/// `~/Library`, so each test asks the sandbox for the place instead of
+/// spelling it out.
+struct SystemSandbox {
     root: PathBuf,
 }
 
-impl XdgSandbox {
+impl SystemSandbox {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("embornal-xdg-{name}"));
+        let root = std::env::temp_dir().join(format!("embornal-system-{name}"));
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
         Self { root }
@@ -72,11 +76,19 @@ impl XdgSandbox {
     }
 
     fn config(&self) -> PathBuf {
-        self.root.join("config/embornal")
+        if cfg!(target_os = "macos") {
+            self.root.join("Library/Application Support/embornal")
+        } else {
+            self.root.join("config/embornal")
+        }
     }
 
     fn data(&self) -> PathBuf {
-        self.root.join("data/embornal")
+        if cfg!(target_os = "macos") {
+            self.root.join("Library/Application Support/embornal")
+        } else {
+            self.root.join("data/embornal")
+        }
     }
 
     fn ok(&self, args: &[&str]) -> String {
@@ -99,15 +111,15 @@ impl XdgSandbox {
     }
 }
 
-impl Drop for XdgSandbox {
+impl Drop for SystemSandbox {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.root).ok();
     }
 }
 
 #[test]
-fn a_new_memory_goes_to_the_xdg_directories() {
-    let sandbox = XdgSandbox::new("fresh");
+fn a_new_memory_goes_to_the_directories_of_the_system() {
+    let sandbox = SystemSandbox::new("fresh");
     sandbox.ok(&["memory", "store", "/notes", "A fact."]);
 
     assert!(sandbox.data().join("memory.db").exists());
@@ -117,8 +129,8 @@ fn a_new_memory_goes_to_the_xdg_directories() {
 }
 
 #[test]
-fn a_memory_of_an_older_build_moves_to_the_xdg_directories() {
-    let sandbox = XdgSandbox::new("adopt");
+fn a_memory_of_an_older_build_moves_to_the_directories_of_the_system() {
+    let sandbox = SystemSandbox::new("adopt");
 
     // Build a memory the way an older build did: everything in one directory.
     let legacy = sandbox.legacy();

@@ -16,7 +16,11 @@ A backup must hold `memory.db`. The weights are a download that the tool makes
 again, so a backup can leave them out.
 
 If the directories have no value, they fall back to `~/.config`, `~/.local/share`
-and `~/.cache`. On macOS the files go to the directories of that system.
+and `~/.cache`.
+
+macOS reads no `XDG` variable. It puts `config.yaml` and `memory.db` in
+`~/Library/Application Support/embornal`, and the weights in
+`~/Library/Caches/embornal`.
 
 `EMBORNAL_HOME` puts the three in one directory.
 
