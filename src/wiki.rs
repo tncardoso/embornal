@@ -1,8 +1,11 @@
 //! The wiki server.
 //!
-//! `embornal memory serve` shows the memory as a small wiki. Each path is a
+//! `embornal memory wiki` shows the memory as a small wiki. Each path is a
 //! page that holds its facts and the paths below it. A `[[/link]]` in a fact
 //! becomes a link to that page.
+//!
+//! This server reads. It answers one person, and it has no login. The server
+//! that many people share is [`crate::api`], which asks for a token.
 
 use crate::error::{Error, Result};
 use crate::memory::api::{CatOptions, Memory, RecallOptions};
@@ -27,7 +30,7 @@ use std::sync::{Arc, Mutex};
 type Shared = Arc<Mutex<Memory>>;
 
 /// Starts the server and blocks until it stops.
-pub fn serve(memory: Memory, port: u16) -> Result<()> {
+pub fn wiki(memory: Memory, port: u16) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

@@ -16,7 +16,7 @@ use std::sync::Once;
 use ulid::Ulid;
 
 /// The schema version that this build writes.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// The key under which the width of the vector index is recorded.
 pub const META_EMBEDDING_DIMENSIONS: &str = "embedding_dimensions";
@@ -25,11 +25,14 @@ pub const META_EMBEDDING_DIMENSIONS: &str = "embedding_dimensions";
 pub const VEC_TABLE: &str = "facts_vec";
 
 const MIGRATION_001: &str = include_str!("schema/001_init.sql");
+const MIGRATION_002: &str = include_str!("schema/002_owner_tokens.sql");
 
 /// The facts that a new memory knows about itself.
 ///
 /// The memory carries its own instructions, so an agent that reads
 /// `/memory` learns how to use the rest of the tree.
+pub const MEMORY_SEED_LEN: usize = MEMORY_SEED.len();
+
 const MEMORY_SEED: [&str; 6] = [
     "A path names one topic. Every fact below a path tells something about that topic.",
     "Write one small fact for each statement.",
@@ -139,6 +142,9 @@ impl Database {
         if current < 1 {
             tx.execute_batch(MIGRATION_001)?;
             seed(&tx)?;
+        }
+        if current < 2 {
+            tx.execute_batch(MIGRATION_002)?;
         }
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         tx.commit()?;
@@ -257,7 +263,9 @@ fn seed(tx: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::acl::{AccessFilter, PolicyRule};
+    use crate::memory::acl::{
+        AccessFilter, DEFAULT_SUBJECT, EVERYONE_ROLE, PolicyRule, SYSTEM_SUBJECT,
+    };
 
     fn db() -> Database {
         Database::open_in_memory(&Config::default()).unwrap()
@@ -267,6 +275,136 @@ mod tests {
     fn a_new_file_reaches_the_current_version() {
         let db = db();
         assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+    }
+
+    /// Builds a file with the schema of version 1 and one fact in it, the way
+    /// an older build left it.
+    fn version_one_file(name: &str) -> std::path::PathBuf {
+        let file = std::env::temp_dir().join(format!("embornal-v1-{name}.db"));
+        std::fs::remove_file(&file).ok();
+
+        let conn = Connection::open(&file).unwrap();
+        conn.execute_batch(MIGRATION_001).unwrap();
+        seed(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO paths(ulid, parent_id, segment, full_path, created_at)
+             VALUES (?, 1, 'notes', '/notes', ?)",
+            params![Ulid::generate().to_string(), time::to_sql(Utc::now())],
+        )
+        .unwrap();
+        let path_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO facts(ulid, path_id, content, created_at) VALUES (?, ?, ?, ?)",
+            params![
+                Ulid::generate().to_string(),
+                path_id,
+                "a fact from before",
+                time::to_sql(Utc::now())
+            ],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        drop(conn);
+        file
+    }
+
+    #[test]
+    fn a_file_of_version_one_keeps_its_facts_and_gains_an_owner() {
+        let file = version_one_file("owner");
+        let db = Database::open(&file, &Config::default()).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+
+        // The fact that the older build wrote belongs to the subject that
+        // could write it, and it is still there.
+        let (content, owner, tag): (String, String, String) = db
+            .conn()
+            .query_row(
+                "SELECT f.content, f.owner, t.value
+                   FROM facts f
+                   JOIN fact_tags t ON t.fact_id = f.id AND t.key = 'owner'
+                  WHERE f.content = 'a fact from before'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(content, "a fact from before");
+        assert_eq!(owner, DEFAULT_SUBJECT);
+        assert_eq!(tag, DEFAULT_SUBJECT);
+
+        // The facts about the memory itself go to the memory, not to the
+        // subject that happened to be there.
+        let system: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM facts WHERE owner = ?",
+                [SYSTEM_SUBJECT],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(system as usize, MEMORY_SEED_LEN);
+
+        // No fact is left without an owner.
+        let orphans: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM facts WHERE owner IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphans, 0);
+
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn a_file_of_version_one_keeps_the_access_that_it_had() {
+        let file = version_one_file("access");
+        let db = Database::open(&file, &Config::default()).unwrap();
+
+        // The one subject of that file still reads everything, so a memory on
+        // one machine works exactly as it did.
+        let rules = rules_of(&db, DEFAULT_SUBJECT);
+        for action in Action::ALL {
+            assert!(AccessFilter::build(&rules, action).is_unrestricted());
+        }
+
+        // It also joins the role that reads the facts about the memory.
+        let joined: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM casbin_rule WHERE ptype = 'g' AND v0 = ? AND v1 = ?",
+                params![DEFAULT_SUBJECT, EVERYONE_ROLE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(joined, 1);
+
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn a_second_open_of_a_file_migrates_nothing_again() {
+        let file = version_one_file("twice");
+        drop(Database::open(&file, &Config::default()).unwrap());
+        let db = Database::open(&file, &Config::default()).unwrap();
+
+        // A migration that ran a second time would double the tags.
+        let tags: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM fact_tags WHERE key = 'owner'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let facts: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM facts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tags, facts);
+
+        std::fs::remove_file(&file).ok();
     }
 
     #[test]
@@ -324,29 +462,81 @@ mod tests {
         assert_eq!(count as usize, MEMORY_SEED.len());
     }
 
+    /// Reads the `p` rules of one subject out of the policy table.
+    fn rules_of(db: &Database, subject: &str) -> Vec<PolicyRule> {
+        let mut stmt = db
+            .conn()
+            .prepare("SELECT v0, v1, v2, v3 FROM casbin_rule WHERE ptype = 'p' AND v0 = ?")
+            .unwrap();
+        stmt.query_map([subject], |row| {
+            Ok(vec![
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ])
+        })
+        .unwrap()
+        .map(|fields| PolicyRule::from_casbin(&fields.unwrap()).unwrap())
+        .collect()
+    }
+
     #[test]
     fn the_command_line_starts_with_full_access() {
         let db = db();
-        let mut stmt = db
-            .conn()
-            .prepare("SELECT v0, v1, v2, v3 FROM casbin_rule WHERE ptype = 'p'")
-            .unwrap();
-        let rules: Vec<PolicyRule> = stmt
-            .query_map([], |row| {
-                Ok(vec![
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ])
-            })
-            .unwrap()
-            .map(|fields| PolicyRule::from_casbin(&fields.unwrap()).unwrap())
-            .collect();
+        let rules = rules_of(&db, DEFAULT_SUBJECT);
 
         assert_eq!(rules.len(), 3);
         for action in Action::ALL {
             assert!(AccessFilter::build(&rules, action).is_unrestricted());
+        }
+    }
+
+    #[test]
+    fn every_subject_reads_the_facts_of_the_memory_itself() {
+        let db = db();
+        let rules = rules_of(&db, EVERYONE_ROLE);
+
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].action, Action::Read);
+        assert_eq!(rules[0].effect, Effect::Allow);
+        assert_eq!(rules[0].object.to_string(), "tag:owner=system");
+
+        // The command line joins that role, so it reads them too.
+        let joined: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM casbin_rule WHERE ptype = 'g' AND v0 = ? AND v1 = ?",
+                params![DEFAULT_SUBJECT, EVERYONE_ROLE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(joined, 1);
+    }
+
+    #[test]
+    fn the_facts_of_a_new_memory_belong_to_the_memory() {
+        let db = db();
+        let mut stmt = db
+            .conn()
+            .prepare(
+                "SELECT f.owner, t.value
+                   FROM facts f
+                   LEFT JOIN fact_tags t ON t.fact_id = f.id AND t.key = 'owner'",
+            )
+            .unwrap();
+        let rows: Vec<(Option<String>, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+
+        assert_eq!(rows.len(), MEMORY_SEED.len());
+        for (owner, tag) in rows {
+            // The column is the truth, and the tag says the same, because the
+            // access rules read the tag.
+            assert_eq!(owner.as_deref(), Some(SYSTEM_SUBJECT));
+            assert_eq!(tag.as_deref(), Some(SYSTEM_SUBJECT));
         }
     }
 

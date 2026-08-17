@@ -11,6 +11,7 @@ use crate::memory::api::{
     CatOptions, Listing, Memory, RecallOptions, ReindexOptions, ReindexReport, TreeNode,
     TreeOptions,
 };
+use crate::memory::backend::{Backend, MemoryApi};
 use crate::memory::fact::{Fact, NewFact, OrderBy, ScoredFact};
 use crate::memory::link::{self, Segment};
 use crate::memory::path::WikiPath;
@@ -18,8 +19,8 @@ use crate::memory::tag::Tag;
 use clap::{Args, Subcommand};
 use std::io::Write;
 
-/// The port that `serve` listens on.
-pub const SERVE_PORT: u16 = 1337;
+/// The port that `wiki` listens on.
+pub const WIKI_PORT: u16 = 1337;
 
 #[derive(Debug, Subcommand)]
 pub enum MemoryCommand {
@@ -35,8 +36,8 @@ pub enum MemoryCommand {
     Recall(RecallArgs),
     /// Gives a vector to each fact that has none.
     Reindex(ReindexArgs),
-    /// Starts the wiki server.
-    Serve(ServeArgs),
+    /// Starts the wiki, which shows the memory in a browser.
+    Wiki(WikiArgs),
 }
 
 #[derive(Debug, Args)]
@@ -115,22 +116,25 @@ pub struct ReindexArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct ServeArgs {
+pub struct WikiArgs {
     /// The port to listen on.
-    #[arg(long, default_value_t = SERVE_PORT)]
+    #[arg(long, default_value_t = WIKI_PORT)]
     pub port: u16,
 }
 
 /// Runs one memory command.
-pub fn run(command: MemoryCommand, memory: Memory, out: &mut impl Write) -> Result<()> {
+pub fn run(command: MemoryCommand, mut memory: Backend, out: &mut impl Write) -> Result<()> {
     match command {
-        MemoryCommand::Store(args) => store(args, memory, out),
-        MemoryCommand::Ls(args) => ls(args, memory, out),
-        MemoryCommand::Tree(args) => tree(args, memory, out),
-        MemoryCommand::Cat(args) => cat(args, memory, out),
-        MemoryCommand::Recall(args) => recall(args, memory, out),
-        MemoryCommand::Reindex(args) => reindex(args, memory, out),
-        MemoryCommand::Serve(args) => serve(args, memory),
+        MemoryCommand::Store(args) => store(args, &mut memory, out),
+        MemoryCommand::Ls(args) => ls(args, &mut memory, out),
+        MemoryCommand::Tree(args) => tree(args, &mut memory, out),
+        MemoryCommand::Cat(args) => cat(args, &mut memory, out),
+        MemoryCommand::Recall(args) => recall(args, &mut memory, out),
+
+        // These two work on the file itself, so they run on the machine that
+        // holds the memory and nowhere else.
+        MemoryCommand::Reindex(args) => reindex(args, memory.into_local("memory reindex")?, out),
+        MemoryCommand::Wiki(args) => wiki(args, memory.into_local("memory wiki")?),
     }
 }
 
@@ -139,7 +143,7 @@ pub fn run(command: MemoryCommand, memory: Memory, out: &mut impl Write) -> Resu
 // ---------------------------------------------------------------------------
 
 /// `embornal memory store [PATH] "[CONTENT]"`
-pub fn store(args: StoreArgs, mut memory: Memory, out: &mut impl Write) -> Result<()> {
+pub fn store(args: StoreArgs, memory: &mut impl MemoryApi, out: &mut impl Write) -> Result<()> {
     let path = WikiPath::parse(&args.path)?;
     let mut tags = Vec::with_capacity(args.tags.len());
     for text in &args.tags {
@@ -157,7 +161,7 @@ pub fn store(args: StoreArgs, mut memory: Memory, out: &mut impl Write) -> Resul
 }
 
 /// `embornal memory ls [PATH]`
-pub fn ls(args: LsArgs, memory: Memory, out: &mut impl Write) -> Result<()> {
+pub fn ls(args: LsArgs, memory: &mut impl MemoryApi, out: &mut impl Write) -> Result<()> {
     let path = WikiPath::parse(&args.path)?;
     let listing = memory.ls(&path)?;
 
@@ -169,7 +173,7 @@ pub fn ls(args: LsArgs, memory: Memory, out: &mut impl Write) -> Result<()> {
 }
 
 /// `embornal memory tree [PATH]`
-pub fn tree(args: TreeArgs, memory: Memory, out: &mut impl Write) -> Result<()> {
+pub fn tree(args: TreeArgs, memory: &mut impl MemoryApi, out: &mut impl Write) -> Result<()> {
     let path = WikiPath::parse(&args.path)?;
     let tree = memory.tree(
         &path,
@@ -181,11 +185,11 @@ pub fn tree(args: TreeArgs, memory: Memory, out: &mut impl Write) -> Result<()> 
 }
 
 /// `embornal memory cat [PATH]`
-pub fn cat(args: CatArgs, mut memory: Memory, out: &mut impl Write) -> Result<()> {
+pub fn cat(args: CatArgs, memory: &mut impl MemoryApi, out: &mut impl Write) -> Result<()> {
     let path = WikiPath::parse(&args.path)?;
     let order_by = match args.order_by.as_deref() {
-        Some(text) => text.parse::<OrderBy>().map_err(Error::Serve)?,
-        None => memory.config().recall.order_by,
+        Some(text) => text.parse::<OrderBy>().map_err(Error::BadArgument)?,
+        None => memory.recall_defaults()?.order_by,
     };
 
     let facts = memory.cat(
@@ -200,16 +204,17 @@ pub fn cat(args: CatArgs, mut memory: Memory, out: &mut impl Write) -> Result<()
 }
 
 /// `embornal memory recall [CONTENT]`
-pub fn recall(args: RecallArgs, mut memory: Memory, out: &mut impl Write) -> Result<()> {
+pub fn recall(args: RecallArgs, memory: &mut impl MemoryApi, out: &mut impl Write) -> Result<()> {
     let under = match args.under.as_deref() {
         Some(text) => Some(WikiPath::parse(text)?),
         None => None,
     };
 
+    let defaults = memory.recall_defaults()?;
     let hits = memory.recall(
         args.content.as_deref(),
         RecallOptions {
-            limit: args.limit.unwrap_or(memory.config().recall.limit),
+            limit: args.limit.unwrap_or(defaults.limit),
             under,
             reinforce: true,
         },
@@ -231,9 +236,9 @@ pub fn reindex(args: ReindexArgs, mut memory: Memory, out: &mut impl Write) -> R
     print_reindex(&report, out)
 }
 
-/// `embornal memory serve`
-pub fn serve(args: ServeArgs, memory: Memory) -> Result<()> {
-    crate::server::serve(memory, args.port)
+/// `embornal memory wiki`
+pub fn wiki(args: WikiArgs, memory: Memory) -> Result<()> {
+    crate::wiki::wiki(memory, args.port)
 }
 
 // ---------------------------------------------------------------------------
@@ -556,12 +561,12 @@ mod tests {
     }
 
     #[test]
-    fn serve_holds_the_documented_port() {
-        let MemoryCommand::Serve(args) = parse(&["embornal", "memory", "serve"]) else {
-            panic!("expected a serve command");
+    fn the_wiki_holds_the_documented_port() {
+        let MemoryCommand::Wiki(args) = parse(&["embornal", "memory", "wiki"]) else {
+            panic!("expected a wiki command");
         };
-        assert_eq!(args.port, SERVE_PORT);
-        assert_eq!(SERVE_PORT, 1337);
+        assert_eq!(args.port, WIKI_PORT);
+        assert_eq!(WIKI_PORT, 1337);
     }
 
     fn sample() -> Listing {

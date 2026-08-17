@@ -28,7 +28,7 @@ pub const STABILITY_GAIN: f64 = 2.75;
 pub const MAX_STABILITY_DAYS: f64 = 3650.0;
 
 /// The primary key of a row in `facts`. Internal to one database file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct FactId(pub i64);
 
 impl fmt::Display for FactId {
@@ -41,7 +41,7 @@ impl fmt::Display for FactId {
 ///
 /// The embedding is not part of this record. It is large and it is rarely
 /// needed, so the reader loads it on demand.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Fact {
     pub id: FactId,
     /// The public identifier. Use this in output, not [`FactId`].
@@ -68,7 +68,7 @@ impl Fact {
 }
 
 /// What the memory writes when it stores a new fact.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewFact {
     pub path: WikiPath,
     pub content: String,
@@ -80,7 +80,7 @@ pub struct NewFact {
 ///
 /// The memory keeps the raw counters and the stability. The strength itself
 /// is a function of the clock, so it is computed and never stored.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Signal {
     /// The moment of the last recall. `None` if nobody recalled the fact.
     pub last_recall_at: Option<DateTime<Utc>>,
@@ -192,7 +192,7 @@ impl fmt::Display for OrderBy {
 }
 
 /// A fact together with the score that a search gave it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScoredFact {
     pub fact: Fact,
     /// The relevance of the keyword match, if the keyword index answered.

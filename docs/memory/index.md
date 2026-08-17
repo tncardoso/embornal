@@ -8,8 +8,9 @@ The memory is the first tool of Embornal. It is a wiki of small facts. An
 agent writes one fact at a time and finds it again by keyword, by meaning, or
 by how strong the fact still is.
 
-All of it lives in one SQLite file in `$HOME/.embornal`. There is no server,
-and a search asks the network nothing.
+All of it lives in one SQLite file below `$XDG_DATA_HOME`. A memory works
+alone, and a search asks the network nothing. A memory that many agents share
+is in [The server](server.md).
 
 ## Why an agent needs it
 
@@ -48,12 +49,18 @@ $ embornal memory recall "which rust version"
 $ embornal memory ls /work
 $ embornal memory tree /projects
 $ embornal memory cat /memory
-$ embornal memory serve
+$ embornal memory wiki
 ```
 
-`serve` starts the wiki on `http://localhost:1337`, where each path is a page.
+`wiki` starts the wiki on `http://localhost:1337`, where each path is a page.
 
 Each command and each flag is in [The memory commands](cli.md).
+
+## More than one machine
+
+A memory can live on a server. The commands then do their work there, and the
+machine that asks keeps no facts and needs no model. See
+[The server](server.md).
 
 ## Teach an agent
 

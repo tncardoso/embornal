@@ -17,7 +17,7 @@ a background worker, or a script that calls a model in a loop.
 | [Memory](docs/memory/index.md) | `embornal memory` | A wiki of small facts that an agent writes one at a time and finds again by word, by sense, or by how strong a fact still is. |
 
 More tools come later. Each one is a subcommand of the same binary and keeps
-its data in `$HOME/.embornal`.
+its data below `$XDG_DATA_HOME`.
 
 ## Memory
 
@@ -91,10 +91,21 @@ $ embornal memory tree /work
 /work
 └── acme*
 
-$ embornal memory serve
+$ embornal memory wiki
 ```
 
-`serve` starts a wiki on `http://localhost:1337`, where each path is a page.
+`wiki` starts a wiki on `http://localhost:1337`, where each path is a page.
+
+To share one memory between machines, put it on a server and point the others
+at it:
+
+```console
+$ embornal token add alice --name laptop   # on the machine that holds it
+$ embornal serve
+```
+
+The client then needs only the address and the token in its `config.yaml`, and
+no embedding model at all. See [The server](docs/memory/server.md).
 
 To teach an agent to use the memory, write the instructions to a skill file:
 
@@ -105,7 +116,7 @@ embornal skill > .claude/skills/memory/SKILL.md
 ## Docs
 
 - **Start here:** [Overview](docs/index.md), [Installation](docs/installation.md)
-- **Use the memory:** [Memory](docs/memory/index.md), [The memory commands](docs/memory/cli.md)
+- **Use the memory:** [Memory](docs/memory/index.md), [The memory commands](docs/memory/cli.md), [The server](docs/memory/server.md)
 - **Read the design:** [The memory model](docs/memory/model.md), [Embeddings](docs/memory/embeddings.md)
 - **Ship a version:** [Releasing](docs/releasing.md), [CHANGELOG.md](CHANGELOG.md)
 

@@ -24,7 +24,7 @@ impl Server {
     /// A list holds the path, the content, and the flags that the store needs,
     /// such as `--tag`.
     fn start_with(name: &str, port: u16, stores: &[Vec<&str>]) -> Self {
-        let home = std::env::temp_dir().join(format!("embornal-serve-{name}"));
+        let home = std::env::temp_dir().join(format!("embornal-wiki-{name}"));
         std::fs::remove_dir_all(&home).ok();
         std::fs::create_dir_all(&home).unwrap();
 
@@ -42,7 +42,7 @@ impl Server {
         }
 
         let mut child = Command::new(env!("CARGO_BIN_EXE_embornal"))
-            .args(["memory", "serve", "--port", &port.to_string()])
+            .args(["memory", "wiki", "--port", &port.to_string()])
             .env("EMBORNAL_EMBEDDING", "off")
             .env("EMBORNAL_HOME", &home)
             .stdout(Stdio::piped())
@@ -137,13 +137,18 @@ fn a_fact_shows_the_tags_that_it_holds() {
     );
     let page = server.get("/notes");
 
+    // Every fact carries the tag that names its writer, because that tag
+    // decides who reads the fact. The tags come in the order of their keys.
     assert!(
-        page.contains(&format!("signal 1.000 · {} · kind=note</div>", today())),
+        page.contains(&format!(
+            "signal 1.000 · {} · kind=note owner=cli</div>",
+            today()
+        )),
         "{page}"
     );
-    // The fact with no tag stops at the date.
+    // The fact that nobody tagged still says who wrote it.
     assert!(
-        page.contains(&format!("signal 1.000 · {}</div>", today())),
+        page.contains(&format!("signal 1.000 · {} · owner=cli</div>", today())),
         "{page}"
     );
 }

@@ -222,10 +222,10 @@ way to fetch them before they are needed.
 
 A fact that the subject may not read stays where it is.
 
-## serve
+## wiki
 
 ```
-embornal memory serve
+embornal memory wiki
 ```
 
 Starts the wiki at `http://localhost:1337`. Each path is a page that holds its
@@ -259,7 +259,69 @@ search found it, before the recall lifts it.
 
 A page does not count as a recall, but a search in the browser does.
 
-Press Ctrl-C to stop the server.
+Press Ctrl-C to stop the wiki.
+
+The wiki reads. It has no login, so it listens for one person on one machine.
+
+## token
+
+These commands run on the machine that holds the memory. The first token
+cannot come through a server, because a server needs a token to answer.
+
+```
+embornal token add alice --name laptop
+```
+
+Writes a token for the subject `alice` and shows it one time. The memory keeps
+the SHA-256 of the token, not the token, so nothing can show it again.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--name TEXT` | Says what the token is for. |
+| `--expires-in DAYS` | Stops the token after that many days. |
+| `--no-rules` | Writes no access rules. Use this for a subject that has its own. |
+
+Without `--no-rules`, a new subject gets these rules:
+
+```
+p, alice,    tag:owner=alice, read,   allow
+p, alice,    tag:owner=alice, write,  allow
+p, alice,    tag:owner=alice, delete, allow
+p, alice,    path:/*,         write,  allow
+g, alice,    everyone
+```
+
+The subject thus writes anywhere, reads what it wrote, and reads the facts
+that the memory holds about itself. See
+[Who owns a fact](model.md#who-owns-a-fact).
+
+```
+embornal token ls
+embornal token revoke [TOKEN]
+```
+
+`ls` shows the tokens that work. `--all` shows the ones that stopped as well.
+No form shows a secret, because the memory holds none.
+
+`revoke` stops one token. The name to give is the one in the `Token` column,
+which also comes inside the token itself: a token in a log says which token to
+stop.
+
+## serve
+
+```
+embornal serve
+```
+
+Puts this memory behind HTTP, so that other machines can use it. Each request
+carries a token, and the token says which subject asks.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--port N` | Listens on another port. The default is 1338. |
+| `--bind ADDRESS` | Listens on another address. The default is `127.0.0.1`. |
+
+See [The server](server.md).
 
 ## What a command refuses
 
@@ -268,6 +330,8 @@ Press Ctrl-C to stop the server.
 | A path with no leading `/`, a space, or `..` | The command stops and names the rule. |
 | A fact on the root `/` | The root holds no facts. |
 | A tag that is not `key=value` | The command stops. |
+| A tag with the key `owner` | The memory writes that tag itself. The command stops and the fact is not written. |
+| A subject name with a space, `=` or `,` | The name becomes an access tag, so the command stops. |
 | A path that holds nothing | `ls` and `cat` say that the path is absent. |
 | A subject with no policy | The commands show nothing, and a write stops. |
 

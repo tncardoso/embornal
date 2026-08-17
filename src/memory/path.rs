@@ -28,7 +28,7 @@ pub const MEMORY_PATH: &str = "/memory";
 /// This value is internal. It is stable inside one database file only, so it
 /// must not appear in output that a user or an agent keeps. Use [`Ulid`] for
 /// that.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PathId(pub i64);
 
 impl fmt::Display for PathId {
@@ -192,6 +192,10 @@ impl std::str::FromStr for WikiPath {
     }
 }
 
+/// A path travels as the text that it holds, and it comes back through
+/// [`WikiPath::parse`]. A path that arrives from another machine is thus held
+/// to the same rules as one that a person wrote, so no query and no page ever
+/// meets a path that broke them.
 impl<'de> Deserialize<'de> for WikiPath {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -243,7 +247,7 @@ pub struct PathRecord {
 }
 
 /// One entry of a `memory ls` listing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathEntry {
     pub path: WikiPath,
     /// The number of live facts that the path holds directly.

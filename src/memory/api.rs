@@ -7,7 +7,7 @@
 use crate::config::{Config, Paths};
 use crate::embedding::{self, Embedder, Input, Provider};
 use crate::error::{Error, Result};
-use crate::memory::acl::{AccessFilter, Action, Resource, Subject};
+use crate::memory::acl::{AccessFilter, Action, OWNER_KEY, Resource, Subject};
 use crate::memory::db::{Database, VEC_TABLE};
 use crate::memory::fact::{Fact, FactId, NewFact, OrderBy, ScoredFact, Signal};
 use crate::memory::guard::Guard;
@@ -16,6 +16,7 @@ use crate::memory::tag::{Tag, TagKey, TagSet, TagValue};
 use crate::memory::time;
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, ToSql, params};
+use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
 /// The columns that build a [`Fact`], and the tables that hold them.
@@ -35,7 +36,7 @@ pub struct Memory {
 }
 
 /// What `cat` needs to know.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatOptions {
     pub order_by: OrderBy,
     pub limit: Option<usize>,
@@ -57,7 +58,7 @@ impl Default for CatOptions {
 }
 
 /// What `recall` needs to know.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecallOptions {
     pub limit: usize,
     /// Search below this path only.
@@ -91,7 +92,7 @@ pub struct ReindexOptions {
 }
 
 /// What `reindex` did.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReindexReport {
     /// Whether this memory has an embedding model at all.
     ///
@@ -107,14 +108,14 @@ pub struct ReindexReport {
 }
 
 /// What `tree` needs to know.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeOptions {
     /// Shows the paths that hold paths below them, and nothing else.
     pub dirs_only: bool,
 }
 
 /// One path of the tree, with everything below it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeNode {
     pub path: WikiPath,
     /// How many facts the path itself holds.
@@ -139,7 +140,7 @@ impl TreeNode {
 }
 
 /// What `ls` gives back.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Listing {
     /// The path that the listing is about.
     pub path: WikiPath,
@@ -194,6 +195,19 @@ impl Memory {
         self.guard.subject()
     }
 
+    /// Points this memory at another subject.
+    ///
+    /// It reads the policies again, so that the guard speaks for the new
+    /// subject and for nobody else. A server calls this for each request,
+    /// because one memory answers many people but one request has one caller.
+    pub fn set_subject(&mut self, subject: Subject) -> Result<()> {
+        if self.guard.subject() == &subject {
+            return Ok(());
+        }
+        self.guard = Guard::load(self.db.conn(), subject)?;
+        Ok(())
+    }
+
     pub fn database(&self) -> &Database {
         &self.db
     }
@@ -211,12 +225,27 @@ impl Memory {
             return Err(Error::EmptyContent);
         }
 
+        // Nobody names the owner of a fact but the memory. A writer that
+        // could name it would take the facts of another subject, because the
+        // access rules read that tag.
+        if let Some(tag) = request
+            .tags
+            .iter()
+            .find(|tag| tag.key.as_str() == OWNER_KEY)
+        {
+            return Err(Error::ReservedTag(tag.key.to_string()));
+        }
+        let owner = self.subject().clone();
+
         // The check reads the tags that the fact will hold: the ones that it
         // takes from the paths above it, and the ones that come with it.
         let mut tags = self.inherited_tags(&request.path)?;
         for tag in &request.tags {
             tags.insert(tag.clone());
         }
+        // The owner goes in last, so that a tag of a path above cannot give
+        // the fact away.
+        tags.insert(owner.owner_tag());
         self.guard
             .require(&Resource::new(request.path.clone(), tags), Action::Write)?;
 
@@ -226,8 +255,8 @@ impl Memory {
 
         let path_id = ensure_path(&tx, &request.path, now)?;
         tx.execute(
-            "INSERT INTO facts(ulid, path_id, content, created_at, stability_days, supersedes_id)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO facts(ulid, path_id, content, created_at, stability_days, supersedes_id, owner)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
                 ulid.to_string(),
                 path_id.0,
@@ -235,11 +264,15 @@ impl Memory {
                 time::to_sql(now),
                 crate::memory::fact::INITIAL_STABILITY_DAYS,
                 request.supersedes_id.map(|id| id.0),
+                owner.as_str(),
             ],
         )?;
         let fact_id = FactId(tx.last_insert_rowid());
 
-        for tag in &request.tags {
+        // The owner column is the truth; this row is the same name in the
+        // form that the access rules read.
+        let owner_tag = owner.owner_tag();
+        for tag in request.tags.iter().chain(std::iter::once(&owner_tag)) {
             tx.execute(
                 "INSERT INTO fact_tags(fact_id, key, value) VALUES (?, ?, ?)",
                 params![fact_id.0, tag.key.as_str(), tag.value.as_str()],
@@ -1179,6 +1212,194 @@ mod tests {
                 supersedes_id: None,
             })
             .unwrap()
+    }
+
+    // -- the owner of a fact ------------------------------------------------
+
+    /// Reads the owner column and the owner tag of one fact.
+    fn owner_of(memory: &Memory, fact: FactId) -> (Option<String>, Option<String>) {
+        memory
+            .database()
+            .conn()
+            .query_row(
+                "SELECT f.owner, t.value
+                   FROM facts f
+                   LEFT JOIN fact_tags t ON t.fact_id = f.id AND t.key = 'owner'
+                  WHERE f.id = ?",
+                [fact.0],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    /// Gives `name` the rules that a new user of a server gets: it writes
+    /// anywhere, and it reads what it wrote.
+    ///
+    /// It also joins the role that reads the facts about the memory itself.
+    fn enrol(memory: &Memory, name: &str) {
+        let conn = memory.database().conn();
+        for action in [Action::Write, Action::Delete] {
+            conn.execute(
+                "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3) VALUES ('p', ?, 'path:/*', ?, 'allow')",
+                params![name, action.as_str()],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3) VALUES ('p', ?, ?, 'read', 'allow')",
+            params![name, format!("tag:owner={name}")],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO casbin_rule(ptype, v0, v1) VALUES ('g', ?, 'everyone')",
+            [name],
+        )
+        .unwrap();
+    }
+
+    /// Speaks for another subject on the same memory.
+    fn as_subject(memory: &mut Memory, name: &str) {
+        memory.set_subject(Subject::parse(name).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_stored_fact_says_who_wrote_it() {
+        let mut memory = memory();
+        let fact = write(&mut memory, "/notes", "one");
+
+        // The column is the truth, and the tag is the same name in the form
+        // that the access rules read.
+        assert_eq!(
+            owner_of(&memory, fact.id),
+            (Some("cli".to_string()), Some("cli".to_string()))
+        );
+    }
+
+    #[test]
+    fn nobody_but_the_memory_names_the_owner_of_a_fact() {
+        let mut memory = memory();
+        let refused = memory.store(NewFact {
+            path: path("/notes"),
+            content: "mine now".to_string(),
+            tags: vec![Tag::parse("owner=somebody-else").unwrap()],
+            supersedes_id: None,
+        });
+        assert!(matches!(refused, Err(Error::ReservedTag(_))), "{refused:?}");
+
+        // The fact did not reach the memory either.
+        assert!(memory.path_id(&path("/notes")).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_tag_of_a_path_cannot_take_a_fact_from_its_writer() {
+        let mut memory = memory();
+        memory
+            .database()
+            .conn()
+            .execute(
+                "INSERT INTO paths(ulid, parent_id, segment, full_path, created_at)
+                 VALUES ('01ABCDEFGHIJKLMNOPQRSTUVWX', 1, 'notes', '/notes', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        let path_id: i64 = memory
+            .database()
+            .conn()
+            .query_row("SELECT id FROM paths WHERE full_path = '/notes'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        memory
+            .database()
+            .conn()
+            .execute(
+                "INSERT INTO path_tags(path_id, key, value) VALUES (?, 'owner', 'somebody-else')",
+                [path_id],
+            )
+            .unwrap();
+
+        let fact = write(&mut memory, "/notes", "still mine");
+
+        // The tag of the fact wins over the tag that it takes from the path.
+        assert_eq!(
+            memory
+                .effective_tags(fact.id)
+                .unwrap()
+                .get(&TagKey::parse("owner").unwrap())
+                .map(|v| v.to_string()),
+            Some("cli".to_string())
+        );
+    }
+
+    #[test]
+    fn a_subject_reads_its_own_facts_and_not_the_facts_of_another() {
+        // Two subjects share one memory, each with the rules that a new user
+        // of a server gets.
+        let mut memory = memory();
+        enrol(&memory, "alice");
+        enrol(&memory, "bob");
+
+        as_subject(&mut memory, "alice");
+        write(&mut memory, "/notes", "alice wrote this");
+
+        as_subject(&mut memory, "bob");
+        write(&mut memory, "/notes", "bob wrote this");
+
+        let seen: Vec<String> = memory
+            .cat(&path("/notes"), CatOptions::default())
+            .unwrap()
+            .iter()
+            .map(|fact| fact.content.clone())
+            .collect();
+        assert_eq!(seen, ["bob wrote this"]);
+
+        let found = memory
+            .recall(Some("wrote"), RecallOptions::default())
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].fact.content, "bob wrote this");
+
+        // The path shows one fact to each of them, not two.
+        assert_eq!(memory.ls(&path("/notes")).unwrap().fact_count, 1);
+        as_subject(&mut memory, "alice");
+        assert_eq!(memory.ls(&path("/notes")).unwrap().fact_count, 1);
+    }
+
+    #[test]
+    fn every_subject_reads_the_facts_of_the_memory_itself() {
+        let mut memory = memory();
+        enrol(&memory, "alice");
+        as_subject(&mut memory, "alice");
+
+        // The memory carries its own instructions, and a new subject needs
+        // them before it can use anything else.
+        let facts = memory.cat(&path("/memory"), CatOptions::default()).unwrap();
+        assert_eq!(facts.len(), crate::memory::db::MEMORY_SEED_LEN);
+    }
+
+    #[test]
+    fn the_command_line_keeps_the_whole_memory_to_itself() {
+        // A memory of one machine gives its subject everything, so the split
+        // by owner changes nothing for it.
+        let mut memory = memory();
+        write(&mut memory, "/notes", "one");
+        let other = Subject::parse("someone-else").unwrap();
+        memory
+            .database()
+            .conn()
+            .execute(
+                "UPDATE facts SET owner = ? WHERE content = 'one'",
+                [other.as_str()],
+            )
+            .unwrap();
+
+        assert_eq!(
+            memory
+                .cat(&path("/notes"), CatOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     // -- the fake model -----------------------------------------------------

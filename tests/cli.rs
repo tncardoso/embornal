@@ -52,6 +52,99 @@ impl Drop for Sandbox {
     }
 }
 
+/// A machine that has no `EMBORNAL_HOME`, so that the binary reads the XDG
+/// directories the way a real installation does.
+struct XdgSandbox {
+    root: PathBuf,
+}
+
+impl XdgSandbox {
+    fn new(name: &str) -> Self {
+        let root = std::env::temp_dir().join(format!("embornal-xdg-{name}"));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        Self { root }
+    }
+
+    /// The directory that an older build wrote to.
+    fn legacy(&self) -> PathBuf {
+        self.root.join(".embornal")
+    }
+
+    fn config(&self) -> PathBuf {
+        self.root.join("config/embornal")
+    }
+
+    fn data(&self) -> PathBuf {
+        self.root.join("data/embornal")
+    }
+
+    fn ok(&self, args: &[&str]) -> String {
+        let output = Command::new(env!("CARGO_BIN_EXE_embornal"))
+            .args(args)
+            .env("EMBORNAL_EMBEDDING", "off")
+            .env_remove("EMBORNAL_HOME")
+            .env("HOME", &self.root)
+            .env("XDG_CONFIG_HOME", self.root.join("config"))
+            .env("XDG_DATA_HOME", self.root.join("data"))
+            .env("XDG_CACHE_HOME", self.root.join("cache"))
+            .output()
+            .expect("the binary runs");
+        assert!(
+            output.status.success(),
+            "{args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+}
+
+impl Drop for XdgSandbox {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.root).ok();
+    }
+}
+
+#[test]
+fn a_new_memory_goes_to_the_xdg_directories() {
+    let sandbox = XdgSandbox::new("fresh");
+    sandbox.ok(&["memory", "store", "/notes", "A fact."]);
+
+    assert!(sandbox.data().join("memory.db").exists());
+    assert!(sandbox.config().exists());
+    // Nothing writes the older directory again.
+    assert!(!sandbox.legacy().exists());
+}
+
+#[test]
+fn a_memory_of_an_older_build_moves_to_the_xdg_directories() {
+    let sandbox = XdgSandbox::new("adopt");
+
+    // Build a memory the way an older build did: everything in one directory.
+    let legacy = sandbox.legacy();
+    std::fs::create_dir_all(legacy.join("models")).unwrap();
+    std::fs::write(legacy.join("config.yaml"), "recall:\n  limit: 7\n").unwrap();
+    std::fs::write(legacy.join("models/weights.gguf"), b"heavy").unwrap();
+    Command::new(env!("CARGO_BIN_EXE_embornal"))
+        .args(["memory", "store", "/notes", "A fact from before."])
+        .env("EMBORNAL_EMBEDDING", "off")
+        .env("EMBORNAL_HOME", &legacy)
+        .output()
+        .unwrap();
+    assert!(legacy.join("memory.db").exists());
+
+    // The next command finds the same fact in the new place.
+    let doc = sandbox.ok(&["memory", "cat", "/notes"]);
+    assert!(doc.contains("A fact from before."), "{doc}");
+    assert!(sandbox.data().join("memory.db").exists());
+    assert!(sandbox.config().join("config.yaml").exists());
+    assert!(!legacy.join("memory.db").exists());
+
+    // The weights are a cache. They stay, and the older directory stays with
+    // them, because throwing away a 300 MB download is not this tool's call.
+    assert!(legacy.join("models/weights.gguf").exists());
+}
+
 #[test]
 fn a_new_memory_builds_itself_on_the_first_command() {
     let sandbox = Sandbox::new("first-run");
@@ -582,13 +675,122 @@ fn a_link_survives_the_round_trip() {
 }
 
 #[test]
+fn a_subject_reads_its_own_facts_and_not_the_facts_of_another() {
+    let sandbox = Sandbox::new("owners");
+    // A token gives each subject the rules of a new user.
+    sandbox.ok(&["token", "add", "alice"]);
+    sandbox.ok(&["token", "add", "bob"]);
+
+    sandbox.ok(&[
+        "--as-subject",
+        "alice",
+        "memory",
+        "store",
+        "/notes",
+        "alice wrote this",
+    ]);
+    sandbox.ok(&[
+        "--as-subject",
+        "bob",
+        "memory",
+        "store",
+        "/notes",
+        "bob wrote this",
+    ]);
+
+    let alice = sandbox.ok(&["--as-subject", "alice", "memory", "cat", "/notes"]);
+    assert!(alice.contains("alice wrote this"), "{alice}");
+    assert!(!alice.contains("bob wrote this"), "{alice}");
+
+    let bob = sandbox.ok(&["--as-subject", "bob", "memory", "recall", "wrote"]);
+    assert!(bob.contains("bob wrote this"), "{bob}");
+    assert!(!bob.contains("alice wrote this"), "{bob}");
+
+    // Each of them still reads the facts that the memory holds about itself.
+    let instructions = sandbox.ok(&["--as-subject", "alice", "memory", "cat", "/memory"]);
+    assert!(
+        instructions.contains("A path names one topic"),
+        "{instructions}"
+    );
+
+    // The subject of this machine keeps the whole memory, so a memory that
+    // one person uses works exactly as it did.
+    let all = sandbox.ok(&["memory", "cat", "/notes"]);
+    assert!(all.contains("alice wrote this"), "{all}");
+    assert!(all.contains("bob wrote this"), "{all}");
+}
+
+#[test]
+fn nobody_but_the_memory_names_the_writer_of_a_fact() {
+    let sandbox = Sandbox::new("forged-owner");
+    let said = sandbox.fails(&[
+        "memory",
+        "store",
+        "/notes",
+        "not mine",
+        "--tag",
+        "owner=somebody-else",
+    ]);
+    assert!(said.contains("owner"), "{said}");
+
+    // The fact did not reach the memory either.
+    let listing = sandbox.ok(&["memory", "ls"]);
+    assert!(!listing.contains("notes"), "{listing}");
+}
+
+#[test]
+fn a_token_reaches_the_reader_one_time_and_the_memory_keeps_no_secret() {
+    let sandbox = Sandbox::new("tokens");
+    let made = sandbox.ok(&["token", "add", "alice", "--name", "laptop"]);
+    let secret = made.lines().next().unwrap().to_string();
+    assert!(secret.starts_with("emb_"), "{made}");
+
+    let listed = sandbox.ok(&["token", "ls"]);
+    assert!(listed.contains("alice"), "{listed}");
+    assert!(listed.contains("laptop"), "{listed}");
+    assert!(listed.contains("live"), "{listed}");
+    // Nothing shows the secret again, because nothing holds it.
+    assert!(!listed.contains(&secret), "{listed}");
+
+    let conn = rusqlite::Connection::open(sandbox.home.join("memory.db")).unwrap();
+    let hash: String = conn
+        .query_row("SELECT hash FROM tokens", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(hash.len(), 64);
+    assert!(!hash.contains(&secret));
+
+    // The public name of the token travels with the secret, so that a secret
+    // in a log says which token to stop.
+    let ulid: String = conn
+        .query_row("SELECT ulid FROM tokens", [], |row| row.get(0))
+        .unwrap();
+    assert!(secret.contains(&ulid), "{secret}");
+
+    let stopped = sandbox.ok(&["token", "revoke", &ulid]);
+    assert!(stopped.contains("stopped"), "{stopped}");
+    assert!(!sandbox.ok(&["token", "ls"]).contains(&ulid));
+    assert!(sandbox.ok(&["token", "ls", "--all"]).contains("revoked"));
+}
+
+#[test]
+fn a_name_that_cannot_be_an_access_tag_is_not_a_subject() {
+    let sandbox = Sandbox::new("bad-subject");
+    // The name becomes the value of the owner tag, so it must hold no space.
+    let said = sandbox.fails(&["--as-subject", "alice bob", "memory", "ls"]);
+    assert!(said.contains("subject"), "{said}");
+}
+
+#[test]
 fn the_help_names_each_command() {
     let sandbox = Sandbox::new("help");
     let help = sandbox.ok(&["memory", "--help"]);
-    for command in ["store", "ls", "tree", "cat", "recall", "reindex", "serve"] {
+    for command in ["store", "ls", "tree", "cat", "recall", "reindex", "wiki"] {
         assert!(help.contains(command), "{command} is missing from the help");
     }
-    assert!(sandbox.ok(&["--help"]).contains("skill"));
+    let top = sandbox.ok(&["--help"]);
+    for command in ["memory", "token", "skill"] {
+        assert!(top.contains(command), "{command} is missing from the help");
+    }
 }
 
 #[test]
@@ -597,7 +799,7 @@ fn the_skill_reads_as_a_skill_file() {
     let skill = sandbox.ok(&["skill"]);
 
     assert!(skill.starts_with("---\nname: memory\n"), "{skill}");
-    assert!(skill.contains("$HOME/.embornal/embornal"));
+    assert!(skill.contains("the `embornal` command"));
     assert!(skill.contains("embornal memory cat /memory"));
     assert!(skill.contains("embornal memory recall [SEARCH TERMS]"));
     assert!(skill.contains("Let updates happen in the main agent."));

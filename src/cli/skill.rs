@@ -20,7 +20,7 @@ description: Read and write your long term memory. Use at startup, when you star
 
 # Memory
 
-Your memory is provided by `$HOME/.embornal/embornal`.
+Your memory is provided by the `embornal` command.
 
 ## At startup
 

@@ -20,7 +20,7 @@
 
 use crate::error::PolicyError;
 use crate::memory::path::WikiPath;
-use crate::memory::tag::{Tag, TagSet};
+use crate::memory::tag::{Tag, TagKey, TagSet, TagValue};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -49,14 +49,61 @@ m = g(r.sub, p.sub) && objMatch(r.obj, p.obj) && r.act == p.act
 /// [`PolicyObject::matches`].
 pub const OBJ_MATCH_FN: &str = "objMatch";
 
-/// The subject that the command line uses until real identities exist.
+/// The subject that a memory on one machine uses.
 pub const DEFAULT_SUBJECT: &str = "cli";
 
-/// Who asks. For now the command line always sends `cli`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// The subject that owns the facts which the memory holds about itself.
+pub const SYSTEM_SUBJECT: &str = "system";
+
+/// The role that every subject holds. It carries the rules that apply to all.
+pub const EVERYONE_ROLE: &str = "everyone";
+
+/// The key of the tag that names the writer of a fact.
+///
+/// The memory writes this tag itself, and it refuses a tag with this key from
+/// anybody else. Access control reads it, so a subject that could write it
+/// could claim the facts of another subject.
+pub const OWNER_KEY: &str = "owner";
+
+/// The longest name that a subject can have.
+pub const MAX_SUBJECT_LEN: usize = 128;
+
+/// The owner of a fact whose subject broke the rules of a name.
+///
+/// It holds a space, and [`Subject::parse`] refuses a name with a space, so
+/// no real subject can ever own such a fact.
+const INVALID_OWNER: &str = "invalid subject";
+
+/// Who asks.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct Subject(String);
 
 impl Subject {
+    /// Reads a name that a person or a token gave.
+    ///
+    /// The name becomes the value of the `owner` tag, so it must obey the
+    /// rules of a tag value. It also travels through the Casbin policy table,
+    /// so it holds no space.
+    pub fn parse(name: &str) -> Result<Self, PolicyError> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(PolicyError::EmptySubject);
+        }
+        if trimmed.chars().count() > MAX_SUBJECT_LEN {
+            return Err(PolicyError::SubjectTooLong(trimmed.to_string()));
+        }
+        if trimmed
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || c == '=' || c == ',')
+        {
+            return Err(PolicyError::InvalidSubject(trimmed.to_string()));
+        }
+        Ok(Self(trimmed.to_string()))
+    }
+
+    /// Builds a subject from a name that the code itself wrote.
+    ///
+    /// Use [`Subject::parse`] for a name that comes from outside.
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
@@ -65,8 +112,48 @@ impl Subject {
         Self(DEFAULT_SUBJECT.to_string())
     }
 
+    /// The subject that owns the facts about the memory itself.
+    pub fn system() -> Self {
+        Self(SYSTEM_SUBJECT.to_string())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The tag that marks a fact as written by this subject.
+    ///
+    /// [`Subject::parse`] keeps the name inside the rules of a tag value, so
+    /// this cannot fail for a subject that came from outside.
+    pub fn owner_tag(&self) -> Tag {
+        Tag::new(
+            TagKey::parse(OWNER_KEY).expect("the constant key is valid"),
+            TagValue::parse(&self.0).unwrap_or_else(|_| {
+                // A subject that no `parse` ever saw could hold anything. It
+                // must still not take the facts of another subject, so it gets
+                // a value that no subject can have: `parse` refuses a name
+                // that holds a space.
+                TagValue::parse(INVALID_OWNER).expect("the constant value is valid")
+            }),
+        )
+    }
+}
+
+impl std::str::FromStr for Subject {
+    type Err = PolicyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for Subject {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -385,28 +472,34 @@ impl AccessFilter {
     pub fn build(rules: &[PolicyRule], action: Action) -> Self {
         let mut allow = Vec::new();
         let mut deny = Vec::new();
-        let mut params = Vec::new();
 
         for rule in rules.iter().filter(|r| r.action == action) {
-            let (fragment, mut fragment_params) = predicate(&rule.object);
+            let predicate = predicate(&rule.object);
             match rule.effect {
-                Effect::Allow => allow.push(fragment),
-                Effect::Deny => deny.push(fragment),
+                Effect::Allow => allow.push(predicate),
+                Effect::Deny => deny.push(predicate),
             }
-            params.append(&mut fragment_params);
         }
+
+        // The values go in as the fragments that hold them go in. A fragment
+        // that the assembly drops must leave no value behind, because the
+        // database counts the `?` marks of the SQL and the values must agree
+        // with that count.
+        let mut params = Vec::new();
 
         // No allow means no access. Default deny is the whole point.
         let mut sql = if allow.is_empty() {
             "0".to_string()
-        } else if allow.iter().any(|f| f == "1") {
+        } else if allow.iter().any(|(fragment, _)| fragment == "1") {
+            // One rule already keeps every row, so the other rules say
+            // nothing and their values go with them.
             "1".to_string()
         } else {
-            format!("({})", allow.join(" OR "))
+            format!("({})", join(allow, " OR ", &mut params))
         };
 
         if !deny.is_empty() {
-            sql = format!("{sql} AND NOT ({})", deny.join(" OR "));
+            sql = format!("{sql} AND NOT ({})", join(deny, " OR ", &mut params));
         }
 
         Self { sql, params }
@@ -449,6 +542,24 @@ impl AccessFilter {
     pub fn is_unrestricted(&self) -> bool {
         self.sql == "1"
     }
+}
+
+/// Joins the fragments and collects their values in the same order.
+///
+/// The two must stay together: the database reads the values by position, so
+/// a fragment that reaches the SQL without its values, or values that reach
+/// the query without their fragment, gives the wrong answer or no answer.
+fn join(
+    predicates: Vec<(String, Vec<String>)>,
+    separator: &str,
+    params: &mut Vec<String>,
+) -> String {
+    let mut fragments = Vec::with_capacity(predicates.len());
+    for (fragment, mut values) in predicates {
+        fragments.push(fragment);
+        params.append(&mut values);
+    }
+    fragments.join(separator)
 }
 
 /// Decides whether a request field matches a policy field.
@@ -506,6 +617,55 @@ mod tests {
             object: PolicyObject::parse(obj).unwrap(),
             action: act,
             effect: eft,
+        }
+    }
+
+    #[test]
+    fn a_name_that_the_owner_tag_cannot_hold_is_not_a_subject() {
+        assert_eq!(Subject::parse("alice").unwrap().as_str(), "alice");
+        assert_eq!(Subject::parse("  alice  ").unwrap().as_str(), "alice");
+
+        // The name becomes the value of the owner tag, so it must not hold
+        // the separator of the access check, nor the separator of a tag.
+        assert!(Subject::parse("").is_err());
+        assert!(Subject::parse("   ").is_err());
+        assert!(Subject::parse("alice bob").is_err());
+        assert!(Subject::parse("owner=alice").is_err());
+        assert!(Subject::parse("alice,bob").is_err());
+        assert!(Subject::parse("alice\u{1f}bob").is_err());
+        assert!(Subject::parse(&"a".repeat(MAX_SUBJECT_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn the_owner_tag_names_the_subject() {
+        assert_eq!(
+            Subject::parse("alice").unwrap().owner_tag().to_string(),
+            "owner=alice"
+        );
+    }
+
+    #[test]
+    fn the_owner_tag_of_any_subject_stays_one_field() {
+        // `Subject::new` takes a name that no `parse` ever saw. Whatever that
+        // name holds, the tag that it makes must stay one field of the access
+        // check, or the subject could claim a tag that it has no right to.
+        for name in [
+            "alice",
+            "alice bob",
+            "with\u{1f}separator",
+            "with=equals",
+            "",
+            "   ",
+        ] {
+            let tag = Subject::new(name).owner_tag();
+            assert_eq!(tag.key.as_str(), OWNER_KEY);
+            assert!(
+                !tag.value.as_str().contains(Resource::FIELD_SEPARATOR),
+                "{name:?} carried the separator into the tag"
+            );
+            // The value is one that a tag can hold, so the request that the
+            // matcher reads can be read back the way it was written.
+            assert!(TagValue::parse(tag.value.as_str()).is_ok(), "{name:?}");
         }
     }
 
@@ -598,6 +758,47 @@ mod tests {
         );
         assert!(filter.is_unrestricted());
         assert!(filter.params().is_empty());
+    }
+
+    #[test]
+    fn a_rule_that_the_sql_drops_leaves_no_value_behind() {
+        // One rule keeps every row, so the SQL of the other rule goes. Its
+        // values must go with it: the database counts the `?` marks, and a
+        // value with no mark stops the query.
+        let rules = [
+            rule("path:/*", Action::Read, Effect::Allow),
+            rule("tag:owner=system", Action::Read, Effect::Allow),
+        ];
+        let filter = AccessFilter::build(&rules, Action::Read);
+        assert!(filter.is_unrestricted());
+        assert_eq!(filter.sql().matches('?').count(), filter.params().len());
+        assert!(filter.params().is_empty());
+    }
+
+    #[test]
+    fn the_values_agree_with_the_marks_of_the_sql() {
+        let rules = [
+            rule("path:/notes/*", Action::Read, Effect::Allow),
+            rule("tag:owner=alice", Action::Read, Effect::Allow),
+            rule("path:/secrets/*", Action::Read, Effect::Deny),
+            rule("tag:visibility=secret", Action::Read, Effect::Deny),
+        ];
+        let filter = AccessFilter::build(&rules, Action::Read);
+        assert_eq!(filter.sql().matches('?').count(), filter.params().len());
+        // The allows come first, then the denies, in the order of the rules.
+        assert_eq!(
+            filter.params(),
+            [
+                "/notes",
+                "/notes/*",
+                "owner",
+                "alice",
+                "/secrets",
+                "/secrets/*",
+                "visibility",
+                "secret"
+            ]
+        );
     }
 
     #[test]
