@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog][kac], and this project uses
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-19
+
 ### Added
 
 - A memory can live on a server. `embornal serve` puts the memory of a machine
