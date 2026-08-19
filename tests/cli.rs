@@ -740,14 +740,7 @@ fn a_subject_reads_its_own_facts_and_not_the_facts_of_another() {
         "bob wrote this",
     ]);
 
-    let alice = sandbox.ok(&[
-        "--as-subject",
-        "alice",
-        "memory",
-        "cat",
-        "/notes",
-        "--meta",
-    ]);
+    let alice = sandbox.ok(&["--as-subject", "alice", "memory", "cat", "/notes", "--meta"]);
     assert!(alice.contains("alice wrote this"), "{alice}");
     assert!(!alice.contains("bob wrote this"), "{alice}");
     assert!(alice.contains("Owner: alice"), "{alice}");
@@ -853,9 +846,9 @@ fn the_bootstrap_reads_as_instructions() {
     assert!(bootstrap.contains("the `embornal` command"));
     assert!(bootstrap.contains("embornal memory cat /memory"));
     assert!(bootstrap.contains("embornal memory recall <query>"));
-    assert!(bootstrap.contains(
-        "Subagents should never update memories. Leave that for the main agent"
-    ));
+    assert!(
+        bootstrap.contains("Subagents should never update memories. Leave that for the main agent")
+    );
 }
 
 #[test]

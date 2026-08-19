@@ -152,10 +152,7 @@ fn a_fact_shows_the_tags_that_it_holds() {
     );
     // The fact that nobody tagged still says who wrote it.
     assert!(
-        page.contains(&format!(
-            "signal 1.000 · {} · owner=default</div>",
-            today()
-        )),
+        page.contains(&format!("signal 1.000 · {} · owner=default</div>", today())),
         "{page}"
     );
 }

@@ -70,9 +70,10 @@ mod tests {
 
     #[test]
     fn the_bootstrap_tells_a_subagent_to_stand_back() {
-        assert!(text().contains(
-            "Subagents should never update memories. Leave that for the main agent"
-        ));
+        assert!(
+            text()
+                .contains("Subagents should never update memories. Leave that for the main agent")
+        );
     }
 
     #[test]

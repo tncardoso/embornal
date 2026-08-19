@@ -34,7 +34,10 @@ const MIGRATION_002: &str = include_str!("schema/002_owner_tokens.sql");
 const MEMORY_SEED_TEXT: &str = include_str!("../prompts/memory.txt");
 
 fn memory_seed() -> Vec<&'static str> {
-    MEMORY_SEED_TEXT.lines().filter(|line| !line.is_empty()).collect()
+    MEMORY_SEED_TEXT
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect()
 }
 
 pub const MEMORY_SEED_LEN: usize = 6;
@@ -260,9 +263,7 @@ fn seed(tx: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::acl::{
-        AccessFilter, DEFAULT_SUBJECT, EVERYONE_ROLE, PolicyRule,
-    };
+    use crate::memory::acl::{AccessFilter, DEFAULT_SUBJECT, EVERYONE_ROLE, PolicyRule};
 
     fn db() -> Database {
         Database::open_in_memory(&Config::default()).unwrap()
@@ -782,9 +783,7 @@ mod tests {
 
         let mut stmt = db
             .conn()
-            .prepare(
-                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'scope'",
-            )
+            .prepare("SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'scope'")
             .unwrap();
         let values: Vec<String> = stmt
             .query_map([], |row| row.get(0))
@@ -821,13 +820,11 @@ mod tests {
                 [],
             )
             .unwrap();
-        let rules = [PolicyRule::from_casbin(&strings(&[
-            "cli",
-            "tag:kind=shared",
-            "read",
-            "allow",
-        ]))
-        .unwrap()];
+        let rules =
+            [
+                PolicyRule::from_casbin(&strings(&["cli", "tag:kind=shared", "read", "allow"]))
+                    .unwrap(),
+            ];
         let filter = AccessFilter::build(&rules, Action::Read);
 
         let sql = format!(

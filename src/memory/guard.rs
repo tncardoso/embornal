@@ -257,10 +257,7 @@ mod tests {
     fn a_rule_that_nobody_can_read_grants_nothing() {
         let db = fresh();
         db.conn().execute("DELETE FROM casbin_rule", []).unwrap();
-        add(
-            db.conn(),
-            &["p", "default", "nonsense", "read", "allow"],
-        );
+        add(db.conn(), &["p", "default", "nonsense", "read", "allow"]);
         let guard = guard_of(&db);
 
         assert!(!guard.allows(&Resource::path_only(path("/a")), Action::Read));
