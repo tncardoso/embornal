@@ -1,0 +1,19 @@
+baseURL = "/"
+locale = "en-US"
+title = "Embornal — AI toolkit for agents"
+theme = "embornal"
+disableKinds = ["taxonomy", "term", "RSS"]
+
+[params]
+description = "A toolkit that helps agents keep, find, and share the facts that matter."
+githubURL = "https://github.com/tncardoso/embornal"
+docsURL = "https://github.com/tncardoso/embornal/tree/main/docs"
+installURL = "https://github.com/tncardoso/embornal/releases/latest"
+
+[[module.mounts]]
+source = "static"
+target = "static"
+
+[[module.mounts]]
+source = "../docs/assets"
+target = "static/assets"

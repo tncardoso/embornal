@@ -1,0 +1,10 @@
+name = "Embornal"
+license = "MIT"
+licenselink = "https://github.com/tncardoso/embornal/blob/main/LICENSE"
+description = "The official landing-page theme for Embornal."
+homepage = "https://github.com/tncardoso/embornal"
+min_version = "0.146.0"
+
+[author]
+name = "Embornal contributors"
+homepage = "https://github.com/tncardoso/embornal"

@@ -1,2 +1,4 @@
 /target
-site
+/site/public/
+/site/resources/_gen/
+/site/.hugo_build.lock
