@@ -252,6 +252,8 @@ pub struct PathEntry {
     pub path: WikiPath,
     /// The number of live facts that the path holds directly.
     pub fact_count: u64,
+    /// The number of visible facts that the path and paths below it hold.
+    pub subtree_fact_count: u64,
     /// The number of direct children.
     pub child_count: u64,
 }

@@ -149,6 +149,7 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
     body.push_str(&breadcrumbs(&path));
     body.push_str(&metadata(
         listing.fact_count,
+        listing.subtree_fact_count,
         listing.children.len() as u64,
         strength(&facts, now),
     ));
@@ -159,10 +160,11 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
         for entry in &listing.children {
             let name = entry.path.segment().unwrap_or("/");
             body.push_str(&format!(
-                "<li><a href=\"{}\">{}</a> <span class=\"count\">{} facts</span></li>",
+                "<li><a href=\"{}\">{}</a> <span class=\"count\">{} · {} total</span></li>",
                 escape(entry.path.as_str()),
                 escape(name),
-                entry.fact_count
+                plural(entry.fact_count, "fact", "facts"),
+                plural(entry.subtree_fact_count, "fact", "facts"),
             ));
         }
         body.push_str("</ul>");
@@ -177,12 +179,18 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
 
 /// Builds the line that says what the path holds.
 ///
-/// The counts are of the path itself: the facts that it holds and the paths
-/// one step below it. The signal is the strength of the path, which a path
-/// with no fact does not have.
-fn metadata(fact_count: u64, child_count: u64, strength: Option<f64>) -> String {
+/// The page shows its direct fact count and the total for its full subtree.
+/// It also shows the paths one step below it. The signal is the strength of
+/// the path, which a path with no fact does not have.
+fn metadata(
+    fact_count: u64,
+    subtree_fact_count: u64,
+    child_count: u64,
+    strength: Option<f64>,
+) -> String {
     let mut parts = vec![
         plural(fact_count, "fact", "facts"),
+        format!("{} total", plural(subtree_fact_count, "fact", "facts")),
         plural(child_count, "child", "children"),
     ];
     if let Some(strength) = strength {
@@ -440,24 +448,24 @@ mod tests {
     #[test]
     fn the_metadata_holds_the_counts_and_the_signal() {
         assert_eq!(
-            metadata(3, 2, Some(0.8127)),
-            "<p class=\"meta\">3 facts · 2 children · signal 0.813</p>"
+            metadata(3, 5, 2, Some(0.8127)),
+            "<p class=\"meta\">3 facts · 5 facts total · 2 children · signal 0.813</p>"
         );
     }
 
     #[test]
     fn the_metadata_uses_the_singular_for_one() {
         assert_eq!(
-            metadata(1, 1, None),
-            "<p class=\"meta\">1 fact · 1 child</p>"
+            metadata(1, 1, 1, None),
+            "<p class=\"meta\">1 fact · 1 fact total · 1 child</p>"
         );
     }
 
     #[test]
     fn a_path_with_no_fact_has_no_signal() {
         assert_eq!(
-            metadata(0, 4, None),
-            "<p class=\"meta\">0 facts · 4 children</p>"
+            metadata(0, 0, 4, None),
+            "<p class=\"meta\">0 facts · 0 facts total · 4 children</p>"
         );
     }
 
@@ -528,6 +536,7 @@ mod tests {
             path_id: PathId(1),
             path: WikiPath::parse("/a").unwrap(),
             content: "one".to_string(),
+            owner: "cli".to_string(),
             created_at,
             signal,
             supersedes_id: None,

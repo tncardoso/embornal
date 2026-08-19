@@ -119,7 +119,11 @@ fn a_page_shows_the_metadata_of_its_path() {
     );
     let page = server.get("/notes");
 
-    assert!(page.contains("2 facts · 1 child · signal 1.000"), "{page}");
+    assert!(
+        page.contains("2 facts · 3 facts total · 1 child · signal 1.000"),
+        "{page}"
+    );
+    assert!(page.contains("a</a> <span class=\"count\">1 fact · 1 fact total"));
     // Each fact carries its own strength and the day of its writing.
     let today = format!("signal 1.000 · {}", today());
     assert_eq!(page.matches(today.as_str()).count(), 2, "{page}");
@@ -176,7 +180,10 @@ fn a_path_with_no_fact_shows_no_signal() {
     let page = server.get("/notes");
 
     // The metadata line stops at the counts, and no fact carries a strength.
-    assert!(page.contains("0 facts · 1 child</p>"), "{page}");
+    assert!(
+        page.contains("0 facts · 1 fact total · 1 child</p>"),
+        "{page}"
+    );
     assert!(!page.contains("<div class=\"about\">"), "{page}");
 }
 

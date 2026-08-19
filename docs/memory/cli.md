@@ -138,6 +138,7 @@ written.
 | `--limit N` | Shows N facts only. |
 | `--order-by METHOD` | `date` for the oldest first, `signal` for the strongest first. |
 | `--recall` | Counts the reading as a recall, which lifts the signal. |
+| `--meta` | Shows the owner and the resolved tags below each fact. |
 
 `cat` does not count as a recall by default. The command hands over each fact
 of the path at once, so it says nothing about which fact was useful.
@@ -170,9 +171,15 @@ order also weighs how well each fact matches the words.
 | `--under PATH` | Searches below this path only. |
 | `--scores` | Adds the value that decided the order. |
 | `--plain` | Writes one fact for each line, with no table. Use this in a pipe. |
+| `--meta` | Adds the owner and the resolved tags of each fact. |
 
 The plain form writes the path and the fact with a tab between them, and it
 writes nothing when the search found nothing.
+
+With `--meta`, the table has `Owner` and `Tags` columns. The tags include the
+tags that the fact takes from its paths. The `owner` tag is in this set. The
+plain form writes the path, owner, tags, and fact, with a tab between each
+field.
 
 A hit counts as a recall: it lifts the signal of the fact, and it lifts it
 more when the fact was almost lost. A second search for the same fact
@@ -236,10 +243,14 @@ facts and the paths below it. A `[[/link]]` becomes a link to that page.
 | `--port N` | Listens on another port. |
 
 Each page shows the metadata of its path below the trail: the number of facts
-that the path holds, the number of paths one step below it, and the signal.
+that the path holds, the total number of facts in that path and all paths
+below it, the number of paths one step below it, and the signal.
 The signal is the mean strength of the facts of the path, from 1.000 for facts
 that somebody read now to 0.000 for facts that the memory almost lost. A path
 with no fact shows no signal.
+
+Each path in the list below the facts shows its direct fact count and its
+total fact count, including all paths below it.
 
 Below its text, each fact carries its own signal, the day on which somebody
 wrote it, and its tags:

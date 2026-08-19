@@ -2,5 +2,5 @@ A path names one topic. Every fact below a path tells something about that topic
 Write a link to another path in the [[/path]] form
 A fact does not change. To correct a fact, write a new fact that supersedes it
 The path `/memory` holds the facts about the memory itself. Consider it the memory schema
-Add projects facts in `/projects/[slug]` being `[slug]` the project root absolute path with `/` replaced with `-`
+Add projects facts in `/projects/[slug]` being `[slug]` the project root absolute path with `/` replaced with `-`, strip `-` prefix
 Important entities should get a fact page in `/entities/[slug]`

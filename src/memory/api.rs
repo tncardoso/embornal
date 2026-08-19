@@ -22,7 +22,7 @@ use ulid::Ulid;
 /// The columns that build a [`Fact`], and the tables that hold them.
 const FACT_SELECT: &str = "SELECT f.id, f.ulid, f.path_id, p.full_path, f.content, \
      f.created_at, f.last_recall_at, f.recall_count, f.stability_days, \
-     f.supersedes_id, f.deleted_at, f.embedding_model \
+     f.supersedes_id, f.deleted_at, f.embedding_model, f.owner \
      FROM facts f JOIN paths p ON p.id = f.path_id";
 
 /// An open memory.
@@ -148,6 +148,8 @@ pub struct Listing {
     pub children: Vec<PathEntry>,
     /// How many facts the path itself holds.
     pub fact_count: u64,
+    /// How many visible facts the path and all paths below it hold.
+    pub subtree_fact_count: u64,
 }
 
 impl Memory {
@@ -286,6 +288,7 @@ impl Memory {
             path_id,
             path: request.path,
             content: request.content.trim().to_string(),
+            owner: owner.to_string(),
             created_at: now,
             signal: Signal::new(now),
             supersedes_id: request.supersedes_id,
@@ -340,6 +343,7 @@ impl Memory {
         let filter = self.guard.filter(Action::Read);
 
         let fact_count = self.visible_fact_count(path_id, &filter)?;
+        let subtree_fact_count = self.visible_subtree_fact_count(path, &filter)?;
 
         let mut children = Vec::new();
         let mut stmt = self
@@ -363,6 +367,7 @@ impl Memory {
             children.push(PathEntry {
                 path: child_path,
                 fact_count: self.visible_fact_count(child_id, &filter)?,
+                subtree_fact_count: visible,
                 child_count: self.child_count(child_id)?,
             });
         }
@@ -371,6 +376,7 @@ impl Memory {
             path: path.clone(),
             children,
             fact_count,
+            subtree_fact_count,
         })
     }
 
@@ -616,7 +622,7 @@ impl Memory {
         let sql = format!(
             "SELECT f.id, f.ulid, f.path_id, p.full_path, f.content, f.created_at,
                     f.last_recall_at, f.recall_count, f.stability_days,
-                    f.supersedes_id, f.deleted_at, f.embedding_model,
+                    f.supersedes_id, f.deleted_at, f.embedding_model, f.owner,
                     bm25(facts_fts) AS rank
              FROM facts_fts
              JOIN facts f ON f.id = facts_fts.rowid
@@ -639,7 +645,7 @@ impl Memory {
         let mut stmt = self.db.conn().prepare(&sql)?;
         let rows = stmt.query_map(bound.as_slice(), |row| {
             let fact = fact_from_row(row)?;
-            let rank: f64 = row.get(12)?;
+            let rank: f64 = row.get(13)?;
             Ok((fact, rank))
         })?;
         let hits: Vec<(Fact, f64)> = rows.collect::<rusqlite::Result<_>>()?;
@@ -681,7 +687,7 @@ impl Memory {
              )
              SELECT f.id, f.ulid, f.path_id, p.full_path, f.content, f.created_at,
                     f.last_recall_at, f.recall_count, f.stability_days,
-                    f.supersedes_id, f.deleted_at, f.embedding_model,
+                    f.supersedes_id, f.deleted_at, f.embedding_model, f.owner,
                     knn.distance AS rank
              FROM knn
              JOIN facts f ON f.id = knn.fact_id
@@ -702,7 +708,7 @@ impl Memory {
         let mut stmt = self.db.conn().prepare(&sql)?;
         let rows = stmt.query_map(bound.as_slice(), |row| {
             let fact = fact_from_row(row)?;
-            let distance: f64 = row.get(12)?;
+            let distance: f64 = row.get(13)?;
             Ok((fact, distance))
         })?;
 
@@ -1137,6 +1143,7 @@ fn fact_from_row(row: &Row<'_>) -> rusqlite::Result<Fact> {
         path_id: PathId(row.get(2)?),
         path: WikiPath::parse(&row.get::<_, String>(3)?).map_err(to_sql_error)?,
         content: row.get(4)?,
+        owner: row.get(12)?,
         created_at,
         signal: Signal::from_parts(created_at, last_recall_at, row.get(7)?, row.get(8)?),
         supersedes_id: row.get::<_, Option<i64>>(9)?.map(FactId),
@@ -1643,7 +1650,20 @@ mod tests {
             .unwrap();
         assert!(entry.has_content());
         assert_eq!(entry.fact_count, 1);
+        assert_eq!(entry.subtree_fact_count, 2);
         assert_eq!(entry.child_count, 1);
+    }
+
+    #[test]
+    fn ls_reports_the_visible_facts_in_its_full_subtree() {
+        let mut memory = memory();
+        write(&mut memory, "/a", "on this path");
+        write(&mut memory, "/a/b", "one level below");
+        write(&mut memory, "/a/b/c", "two levels below");
+
+        let listing = memory.ls(&path("/a")).unwrap();
+        assert_eq!(listing.fact_count, 1);
+        assert_eq!(listing.subtree_fact_count, 3);
     }
 
     #[test]

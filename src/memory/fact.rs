@@ -49,6 +49,8 @@ pub struct Fact {
     pub path_id: PathId,
     pub path: WikiPath,
     pub content: String,
+    /// The subject that wrote the fact.
+    pub owner: String,
     pub created_at: DateTime<Utc>,
     /// The recall state of the fact.
     pub signal: Signal,

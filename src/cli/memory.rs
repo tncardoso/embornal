@@ -15,7 +15,7 @@ use crate::memory::backend::{Backend, MemoryApi};
 use crate::memory::fact::{Fact, NewFact, OrderBy, ScoredFact};
 use crate::memory::link::{self, Segment};
 use crate::memory::path::WikiPath;
-use crate::memory::tag::Tag;
+use crate::memory::tag::{Tag, TagSet};
 use clap::{Args, Subcommand};
 use std::io::Write;
 
@@ -84,6 +84,9 @@ pub struct CatArgs {
     /// Counts the reading as a recall, which lifts the signal.
     #[arg(long)]
     pub recall: bool,
+    /// Shows the owner and tags of each fact.
+    #[arg(long)]
+    pub meta: bool,
 }
 
 #[derive(Debug, Args)]
@@ -102,6 +105,9 @@ pub struct RecallArgs {
     /// Writes one fact for each line, with no table. Use this in a pipe.
     #[arg(long)]
     pub plain: bool,
+    /// Shows the owner and tags of each fact.
+    #[arg(long)]
+    pub meta: bool,
 }
 
 #[derive(Debug, Args)]
@@ -200,7 +206,8 @@ pub fn cat(args: CatArgs, memory: &mut impl MemoryApi, out: &mut impl Write) -> 
             reinforce: args.recall,
         },
     )?;
-    print_document(&path, &facts, out)
+    let tags = tags_of(args.meta, &facts, memory)?;
+    print_document(&path, &facts, tags.as_deref(), out)
 }
 
 /// `embornal memory recall [CONTENT]`
@@ -220,11 +227,25 @@ pub fn recall(args: RecallArgs, memory: &mut impl MemoryApi, out: &mut impl Writ
         },
     )?;
 
+    let facts: Vec<Fact> = hits.iter().map(|hit| hit.fact.clone()).collect();
+    let tags = tags_of(args.meta, &facts, memory)?;
     if args.plain {
-        print_hit_lines(&hits, out)
+        print_hit_lines(&hits, tags.as_deref(), out)
     } else {
-        print_hits(&hits, args.scores, out)
+        print_hits(&hits, args.scores, tags.as_deref(), out)
     }
+}
+
+/// Reads the resolved tags when the caller asked for metadata.
+fn tags_of(meta: bool, facts: &[Fact], memory: &mut impl MemoryApi) -> Result<Option<Vec<TagSet>>> {
+    if !meta {
+        return Ok(None);
+    }
+    facts
+        .iter()
+        .map(|fact| memory.effective_tags(fact.id))
+        .collect::<Result<Vec<_>>>()
+        .map(Some)
 }
 
 /// `embornal memory reindex`
@@ -314,10 +335,19 @@ fn mark(node: &TreeNode) -> &'static str {
 }
 
 /// Prints the document of one path.
-pub fn print_document(path: &WikiPath, facts: &[Fact], out: &mut impl Write) -> Result<()> {
+pub fn print_document(
+    path: &WikiPath,
+    facts: &[Fact],
+    tags: Option<&[TagSet]>,
+    out: &mut impl Write,
+) -> Result<()> {
     writeln!(out, "# {path}\n").map_err(write_error)?;
-    for fact in facts {
+    for (index, fact) in facts.iter().enumerate() {
         writeln!(out, "- {}", fact.content).map_err(write_error)?;
+        if let Some(tags) = tags {
+            writeln!(out, "  - Owner: {}", fact.owner).map_err(write_error)?;
+            writeln!(out, "  - Tags: {}", tags[index]).map_err(write_error)?;
+        }
     }
     Ok(())
 }
@@ -330,21 +360,34 @@ pub fn print_document(path: &WikiPath, facts: &[Fact], out: &mut impl Write) -> 
 /// well the fact matches the words.
 ///
 /// With `scores`, the value that decided the order comes as well.
-pub fn print_hits(hits: &[ScoredFact], scores: bool, out: &mut impl Write) -> Result<()> {
+pub fn print_hits(
+    hits: &[ScoredFact],
+    scores: bool,
+    tags: Option<&[TagSet]>,
+    out: &mut impl Write,
+) -> Result<()> {
     let mut columns = vec![("Path", Align::Left), ("Signal", Align::Right)];
     if scores {
         columns.push(("Score", Align::Right));
     }
+    if tags.is_some() {
+        columns.push(("Owner", Align::Left));
+        columns.push(("Tags", Align::Left));
+    }
     columns.push(("Fact", Align::Left));
 
     let mut table = Table::new(&columns);
-    for hit in hits {
+    for (index, hit) in hits.iter().enumerate() {
         let mut row = vec![
             hit.fact.path.to_string(),
             format!("{:.3}", hit.signal_strength),
         ];
         if scores {
             row.push(format!("{:.3}", hit.score));
+        }
+        if let Some(tags) = tags {
+            row.push(hit.fact.owner.clone());
+            row.push(tags[index].to_string());
         }
         row.push(hit.fact.content.clone());
         table.row(row);
@@ -375,9 +418,22 @@ pub fn print_reindex(report: &ReindexReport, out: &mut impl Write) -> Result<()>
 }
 
 /// Prints one fact for each line, with no table.
-pub fn print_hit_lines(hits: &[ScoredFact], out: &mut impl Write) -> Result<()> {
-    for hit in hits {
-        writeln!(out, "{}\t{}", hit.fact.path, hit.fact.content).map_err(write_error)?;
+pub fn print_hit_lines(
+    hits: &[ScoredFact],
+    tags: Option<&[TagSet]>,
+    out: &mut impl Write,
+) -> Result<()> {
+    for (index, hit) in hits.iter().enumerate() {
+        if let Some(tags) = tags {
+            writeln!(
+                out,
+                "{}\t{}\t{}\t{}",
+                hit.fact.path, hit.fact.owner, tags[index], hit.fact.content
+            )
+            .map_err(write_error)?;
+        } else {
+            writeln!(out, "{}\t{}", hit.fact.path, hit.fact.content).map_err(write_error)?;
+        }
     }
     Ok(())
 }
@@ -537,6 +593,12 @@ mod tests {
         assert_eq!(args.limit, Some(5));
         assert_eq!(args.order_by.as_deref(), Some("signal"));
         assert!(!args.recall);
+        assert!(!args.meta);
+
+        let MemoryCommand::Cat(args) = parse(&["embornal", "memory", "cat", "/a", "--meta"]) else {
+            panic!("expected a cat command");
+        };
+        assert!(args.meta);
     }
 
     #[test]
@@ -558,6 +620,14 @@ mod tests {
         assert_eq!(args.limit, Some(3));
         assert_eq!(args.under.as_deref(), Some("/db"));
         assert!(args.scores);
+        assert!(!args.meta);
+
+        let MemoryCommand::Recall(args) =
+            parse(&["embornal", "memory", "recall", "sqlite", "--meta"])
+        else {
+            panic!("expected a recall command");
+        };
+        assert!(args.meta);
     }
 
     #[test]
@@ -573,20 +643,24 @@ mod tests {
         Listing {
             path: WikiPath::root(),
             fact_count: 0,
+            subtree_fact_count: 0,
             children: vec![
                 PathEntry {
                     path: WikiPath::parse("/both").unwrap(),
                     fact_count: 2,
+                    subtree_fact_count: 2,
                     child_count: 1,
                 },
                 PathEntry {
                     path: WikiPath::parse("/leaf").unwrap(),
                     fact_count: 1,
+                    subtree_fact_count: 1,
                     child_count: 0,
                 },
                 PathEntry {
                     path: WikiPath::parse("/empty").unwrap(),
                     fact_count: 0,
+                    subtree_fact_count: 0,
                     child_count: 2,
                 },
             ],
@@ -611,9 +685,11 @@ mod tests {
         let listing = Listing {
             path: WikiPath::parse("/work").unwrap(),
             fact_count: 0,
+            subtree_fact_count: 0,
             children: vec![PathEntry {
                 path: WikiPath::parse("/work/acme").unwrap(),
                 fact_count: 3,
+                subtree_fact_count: 3,
                 child_count: 0,
             }],
         };
@@ -626,6 +702,7 @@ mod tests {
         let listing = Listing {
             path: WikiPath::root(),
             fact_count: 0,
+            subtree_fact_count: 0,
             children: Vec::new(),
         };
         let output = text(|out| print_listing(&listing, out));
@@ -646,6 +723,7 @@ mod tests {
         let listing = Listing {
             path: WikiPath::root(),
             fact_count: 0,
+            subtree_fact_count: 0,
             children: Vec::new(),
         };
         assert_eq!(text(|out| print_names(&listing, out)), "");
@@ -664,6 +742,7 @@ mod tests {
                 path_id: PathId(2),
                 path: WikiPath::parse(path).unwrap(),
                 content: content.to_string(),
+                owner: "cli".to_string(),
                 created_at: now,
                 signal: Signal::new(now),
                 supersedes_id: None,
@@ -684,7 +763,7 @@ mod tests {
             hit("/lang", "Rust.", 0.25, 0.8),
         ];
 
-        let output = text(|out| print_hits(&hits, false, out));
+        let output = text(|out| print_hits(&hits, false, None, out));
         assert_eq!(
             output,
             "| Path  | Signal | Fact                    |\n\
@@ -698,10 +777,10 @@ mod tests {
     fn the_score_column_comes_only_when_it_is_asked_for() {
         let hits = [hit("/db", "one", 0.5, 1.25)];
 
-        let plain = text(|out| print_hits(&hits, false, out));
+        let plain = text(|out| print_hits(&hits, false, None, out));
         assert!(!plain.contains("Score"));
 
-        let with_scores = text(|out| print_hits(&hits, true, out));
+        let with_scores = text(|out| print_hits(&hits, true, None, out));
         assert_eq!(
             with_scores,
             "| Path | Signal | Score | Fact |\n\
@@ -712,7 +791,7 @@ mod tests {
 
     #[test]
     fn a_recall_that_found_nothing_still_shows_its_heading() {
-        let output = text(|out| print_hits(&[], false, out));
+        let output = text(|out| print_hits(&[], false, None, out));
         assert_eq!(
             output,
             "| Path | Signal | Fact |\n+------+--------+------+\n"
@@ -722,14 +801,55 @@ mod tests {
     #[test]
     fn the_plain_form_of_a_recall_feeds_a_pipe() {
         let hits = [hit("/db", "The memory uses SQLite.", 1.0, 1.5)];
-        let output = text(|out| print_hit_lines(&hits, out));
+        let output = text(|out| print_hit_lines(&hits, None, out));
         assert_eq!(output, "/db\tThe memory uses SQLite.\n");
     }
 
     #[test]
     fn a_document_starts_with_its_path() {
-        let output = text(|out| print_document(&WikiPath::parse("/a").unwrap(), &[], out));
+        let output = text(|out| print_document(&WikiPath::parse("/a").unwrap(), &[], None, out));
         assert_eq!(output, "# /a\n\n");
+    }
+
+    #[test]
+    fn metadata_adds_the_owner_and_tags_to_a_recall() {
+        let hits = [hit("/db", "one", 0.5, 1.25)];
+        let tags: TagSet = [
+            Tag::parse("kind=note").unwrap(),
+            Tag::parse("owner=cli").unwrap(),
+        ]
+        .into_iter()
+        .collect();
+
+        let output = text(|out| print_hits(&hits, false, Some(&[tags]), out));
+        assert_eq!(
+            output,
+            "| Path | Signal | Owner | Tags                | Fact |\n\
+             +------+--------+-------+---------------------+------+\n\
+             | /db  |  0.500 | cli   | kind=note owner=cli | one  |\n"
+        );
+    }
+
+    #[test]
+    fn metadata_adds_tab_separated_fields_to_plain_recall() {
+        let hits = [hit("/db", "one", 0.5, 1.25)];
+        let tags: TagSet = [Tag::parse("owner=cli").unwrap()].into_iter().collect();
+
+        let output = text(|out| print_hit_lines(&hits, Some(&[tags]), out));
+        assert_eq!(output, "/db\tcli\towner=cli\tone\n");
+    }
+
+    #[test]
+    fn metadata_appears_below_each_fact_in_a_document() {
+        let facts = [hit("/a", "one", 0.5, 1.25).fact];
+        let tags: TagSet = [Tag::parse("owner=cli").unwrap()].into_iter().collect();
+
+        let output =
+            text(|out| print_document(&WikiPath::parse("/a").unwrap(), &facts, Some(&[tags]), out));
+        assert_eq!(
+            output,
+            "# /a\n\n- one\n  - Owner: cli\n  - Tags: owner=cli\n"
+        );
     }
 
     #[test]

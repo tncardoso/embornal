@@ -599,6 +599,30 @@ fn a_tag_travels_from_the_command_line_to_the_policy() {
 }
 
 #[test]
+fn cat_and_recall_show_fact_metadata_when_asked() {
+    let sandbox = Sandbox::new("read-meta");
+    sandbox.ok(&[
+        "memory",
+        "store",
+        "/notes",
+        "a tagged note",
+        "--tag",
+        "kind=note",
+    ]);
+
+    let document = sandbox.ok(&["memory", "cat", "/notes", "--meta"]);
+    assert!(document.contains("Owner: cli"), "{document}");
+    assert!(document.contains("Tags: kind=note owner=cli"), "{document}");
+
+    let recalled = sandbox.ok(&["memory", "recall", "tagged", "--meta"]);
+    assert!(recalled.contains("Owner"), "{recalled}");
+    assert!(recalled.contains("kind=note owner=cli"), "{recalled}");
+
+    let plain = sandbox.ok(&["memory", "recall", "tagged", "--plain", "--meta"]);
+    assert_eq!(plain, "/notes\tcli\tkind=note owner=cli\ta tagged note\n");
+}
+
+#[test]
 fn a_bad_tag_stops_the_store() {
     let sandbox = Sandbox::new("bad-tag");
     let error = sandbox.fails(&["memory", "store", "/a", "one", "--tag", "novalue"]);
