@@ -447,7 +447,7 @@ mod tests {
         let config = Config::load(Path::new("/does/not/exist.yaml")).unwrap();
         assert_eq!(config, Config::default());
         assert_eq!(config.embedding.dimensions, 768);
-        assert_eq!(config.subject.as_str(), "cli");
+        assert_eq!(config.subject.as_str(), "default");
     }
 
     #[test]

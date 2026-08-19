@@ -131,7 +131,7 @@ A read does not test each fact. It asks Casbin for the permissions of the
 subject, turns them into one `WHERE` fragment and lets the database drop what
 the subject must not see.
 
-A new database gives the `cli` subject full access to the whole tree, so a
+A new database gives the `default` subject full access to the whole tree, so a
 memory on one machine works with no policy of its own.
 
 ### Who owns a fact
@@ -150,13 +150,17 @@ This lets one rule give a subject its own facts and nothing more:
 p, alice, tag:owner=alice, read, allow
 ```
 
-The facts that the memory holds about itself belong to the subject `system`.
-Every subject reads them through the `everyone` role:
+The local command line and the initial facts under `/memory` use the subject
+`default`. The initial facts also carry `visibility=public`. Every
+authenticated subject reads public facts through the `everyone` role:
 
 ```
 g, alice,    everyone
-p, everyone, tag:owner=system, read, allow
+p, everyone, tag:visibility=public, read, allow
 ```
+
+A fact owned by `default` is not public unless it also carries the public
+visibility tag.
 
 A subject name becomes the value of a tag, so it holds no space, no `=` and
 no `,`.

@@ -50,10 +50,7 @@ m = g(r.sub, p.sub) && objMatch(r.obj, p.obj) && r.act == p.act
 pub const OBJ_MATCH_FN: &str = "objMatch";
 
 /// The subject that a memory on one machine uses.
-pub const DEFAULT_SUBJECT: &str = "cli";
-
-/// The subject that owns the facts which the memory holds about itself.
-pub const SYSTEM_SUBJECT: &str = "system";
+pub const DEFAULT_SUBJECT: &str = "default";
 
 /// The role that every subject holds. It carries the rules that apply to all.
 pub const EVERYONE_ROLE: &str = "everyone";
@@ -110,11 +107,6 @@ impl Subject {
 
     pub fn cli() -> Self {
         Self(DEFAULT_SUBJECT.to_string())
-    }
-
-    /// The subject that owns the facts about the memory itself.
-    pub fn system() -> Self {
-        Self(SYSTEM_SUBJECT.to_string())
     }
 
     pub fn as_str(&self) -> &str {
@@ -767,7 +759,7 @@ mod tests {
         // value with no mark stops the query.
         let rules = [
             rule("path:/*", Action::Read, Effect::Allow),
-            rule("tag:owner=system", Action::Read, Effect::Allow),
+            rule("tag:visibility=public", Action::Read, Effect::Allow),
         ];
         let filter = AccessFilter::build(&rules, Action::Read);
         assert!(filter.is_unrestricted());

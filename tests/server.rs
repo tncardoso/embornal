@@ -218,7 +218,7 @@ fn a_request_with_no_token_reaches_nothing() {
 }
 
 #[test]
-fn the_token_says_who_asks_and_the_client_cannot() {
+fn the_token_says_who_asks_and_the_client_flag_is_ignored() {
     let server = Server::start("identity", 18923);
     let alice = server.home.token_for("alice");
     let bob = server.home.token_for("bob");
@@ -230,16 +230,28 @@ fn the_token_says_who_asks_and_the_client_cannot() {
     );
     assert!(server.get("/whoami", &bob).contains("\"subject\":\"bob\""));
 
-    // A client that names a subject is stopped before it reaches the wire.
+    // The local flag cannot replace the subject that the token names.
     let client = Home::new("identity-client");
     client.points_at(server.port, &alice);
-    let said = client.fails(&["--as-subject", "bob", "memory", "ls"]);
-    assert!(said.contains("token says who asks"), "{said}");
+    client.ok(&[
+        "--as-subject",
+        "bob",
+        "memory",
+        "store",
+        "/notes",
+        "written with alice's token",
+    ]);
+    let owned = client.ok(&["memory", "cat", "/notes", "--meta"]);
+    assert!(owned.contains("Owner: alice"), "{owned}");
+    assert!(owned.contains("Tags: owner=alice"), "{owned}");
 }
 
 #[test]
 fn a_subject_reads_its_own_facts_through_the_server() {
     let server = Server::start("owners", 18924);
+    server
+        .home
+        .ok(&["memory", "store", "/private", "default kept this"]);
     let alice = Home::new("owners-alice");
     alice.points_at(server.port, &server.home.token_for("alice"));
     let bob = Home::new("owners-bob");
@@ -247,6 +259,18 @@ fn a_subject_reads_its_own_facts_through_the_server() {
 
     alice.ok(&["memory", "store", "/notes", "alice wrote this"]);
     bob.ok(&["memory", "store", "/notes", "bob wrote this"]);
+    alice.ok(&[
+        "memory",
+        "store",
+        "/news",
+        "alice shared this",
+        "--tag",
+        "visibility=public",
+    ]);
+
+    let owned = alice.ok(&["memory", "cat", "/notes", "--meta"]);
+    assert!(owned.contains("Owner: alice"), "{owned}");
+    assert!(owned.contains("Tags: owner=alice"), "{owned}");
 
     let seen = alice.ok(&["memory", "cat", "/notes"]);
     assert!(seen.contains("alice wrote this"), "{seen}");
@@ -256,13 +280,19 @@ fn a_subject_reads_its_own_facts_through_the_server() {
     assert!(found.contains("bob wrote this"), "{found}");
     assert!(!found.contains("alice wrote this"), "{found}");
 
+    let public = bob.ok(&["memory", "cat", "/news", "--meta"]);
+    assert!(public.contains("alice shared this"), "{public}");
+    assert!(public.contains("visibility=public"), "{public}");
+
+    let private = alice.ok(&["memory", "cat", "/private"]);
+    assert!(!private.contains("default kept this"), "{private}");
+
     // Both of them read the facts that the memory holds about itself.
     for memory in [&alice, &bob] {
-        assert!(
-            memory
-                .ok(&["memory", "cat", "/memory"])
-                .contains("A path names one topic")
-        );
+        let bootstrap = memory.ok(&["memory", "cat", "/memory", "--meta"]);
+        assert!(bootstrap.contains("A path names one topic"), "{bootstrap}");
+        assert!(bootstrap.contains("Owner: default"), "{bootstrap}");
+        assert!(bootstrap.contains("visibility=public"), "{bootstrap}");
     }
 }
 

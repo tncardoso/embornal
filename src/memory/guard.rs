@@ -191,7 +191,10 @@ mod tests {
     #[test]
     fn a_deny_beats_the_seeded_allow() {
         let db = fresh();
-        add(db.conn(), &["p", "cli", "path:/secrets/*", "read", "deny"]);
+        add(
+            db.conn(),
+            &["p", "default", "path:/secrets/*", "read", "deny"],
+        );
         let guard = guard_of(&db);
 
         assert!(guard.allows(&Resource::path_only(path("/notes")), Action::Read));
@@ -208,7 +211,7 @@ mod tests {
             db.conn(),
             &["p", "reader", "path:/notes/*", "read", "allow"],
         );
-        add(db.conn(), &["g", "cli", "reader"]);
+        add(db.conn(), &["g", "default", "reader"]);
         let guard = guard_of(&db);
 
         assert!(guard.allows(&Resource::path_only(path("/notes/a")), Action::Read));
@@ -236,7 +239,7 @@ mod tests {
         db.conn().execute("DELETE FROM casbin_rule", []).unwrap();
         add(
             db.conn(),
-            &["p", "cli", "tag:visibility=public", "read", "allow"],
+            &["p", "default", "tag:visibility=public", "read", "allow"],
         );
         let guard = guard_of(&db);
 
@@ -254,7 +257,10 @@ mod tests {
     fn a_rule_that_nobody_can_read_grants_nothing() {
         let db = fresh();
         db.conn().execute("DELETE FROM casbin_rule", []).unwrap();
-        add(db.conn(), &["p", "cli", "nonsense", "read", "allow"]);
+        add(
+            db.conn(),
+            &["p", "default", "nonsense", "read", "allow"],
+        );
         let guard = guard_of(&db);
 
         assert!(!guard.allows(&Resource::path_only(path("/a")), Action::Read));
@@ -265,10 +271,13 @@ mod tests {
     fn the_filter_and_the_single_check_agree() {
         let db = fresh();
         db.conn().execute("DELETE FROM casbin_rule", []).unwrap();
-        add(db.conn(), &["p", "cli", "path:/work/*", "read", "allow"]);
         add(
             db.conn(),
-            &["p", "cli", "path:/work/acme/*", "read", "deny"],
+            &["p", "default", "path:/work/*", "read", "allow"],
+        );
+        add(
+            db.conn(),
+            &["p", "default", "path:/work/acme/*", "read", "deny"],
         );
         let guard = guard_of(&db);
         let filter = guard.filter(Action::Read);

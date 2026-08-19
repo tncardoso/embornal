@@ -261,7 +261,7 @@ fn seed(tx: &Connection) -> Result<()> {
 mod tests {
     use super::*;
     use crate::memory::acl::{
-        AccessFilter, DEFAULT_SUBJECT, EVERYONE_ROLE, PolicyRule, SYSTEM_SUBJECT,
+        AccessFilter, DEFAULT_SUBJECT, EVERYONE_ROLE, PolicyRule,
     };
 
     fn db() -> Database {
@@ -328,17 +328,18 @@ mod tests {
         assert_eq!(owner, DEFAULT_SUBJECT);
         assert_eq!(tag, DEFAULT_SUBJECT);
 
-        // The facts about the memory itself go to the memory, not to the
-        // subject that happened to be there.
-        let system: i64 = db
+        // The facts about the memory itself use the same default owner.
+        let seeded: i64 = db
             .conn()
             .query_row(
-                "SELECT count(*) FROM facts WHERE owner = ?",
-                [SYSTEM_SUBJECT],
+                "SELECT count(*) FROM facts f
+                  JOIN paths p ON p.id = f.path_id
+                 WHERE f.owner = ? AND p.full_path = '/memory'",
+                [DEFAULT_SUBJECT],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(system as usize, MEMORY_SEED_LEN);
+        assert_eq!(seeded as usize, MEMORY_SEED_LEN);
 
         // No fact is left without an owner.
         let orphans: i64 = db
@@ -490,14 +491,14 @@ mod tests {
     }
 
     #[test]
-    fn every_subject_reads_the_facts_of_the_memory_itself() {
+    fn every_subject_reads_public_facts() {
         let db = db();
         let rules = rules_of(&db, EVERYONE_ROLE);
 
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].action, Action::Read);
         assert_eq!(rules[0].effect, Effect::Allow);
-        assert_eq!(rules[0].object.to_string(), "tag:owner=system");
+        assert_eq!(rules[0].object.to_string(), "tag:visibility=public");
 
         // The command line joins that role, so it reads them too.
         let joined: i64 = db
@@ -512,28 +513,32 @@ mod tests {
     }
 
     #[test]
-    fn the_facts_of_a_new_memory_belong_to_the_memory() {
+    fn the_facts_of_a_new_memory_are_owned_by_default_and_public() {
         let db = db();
         let mut stmt = db
             .conn()
             .prepare(
-                "SELECT f.owner, t.value
+                "SELECT f.owner, owner.value, visibility.value
                    FROM facts f
-                   LEFT JOIN fact_tags t ON t.fact_id = f.id AND t.key = 'owner'",
+                   LEFT JOIN fact_tags owner
+                     ON owner.fact_id = f.id AND owner.key = 'owner'
+                   LEFT JOIN fact_tags visibility
+                     ON visibility.fact_id = f.id AND visibility.key = 'visibility'",
             )
             .unwrap();
-        let rows: Vec<(Option<String>, Option<String>)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        let rows: Vec<(Option<String>, Option<String>, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .unwrap()
             .map(|row| row.unwrap())
             .collect();
 
         assert_eq!(rows.len(), MEMORY_SEED_LEN);
-        for (owner, tag) in rows {
+        for (owner, owner_tag, visibility) in rows {
             // The column is the truth, and the tag says the same, because the
             // access rules read the tag.
-            assert_eq!(owner.as_deref(), Some(SYSTEM_SUBJECT));
-            assert_eq!(tag.as_deref(), Some(SYSTEM_SUBJECT));
+            assert_eq!(owner.as_deref(), Some(DEFAULT_SUBJECT));
+            assert_eq!(owner_tag.as_deref(), Some(DEFAULT_SUBJECT));
+            assert_eq!(visibility.as_deref(), Some("public"));
         }
     }
 
@@ -708,7 +713,7 @@ mod tests {
         let db = db();
         db.conn()
             .execute(
-                "INSERT INTO path_tags(path_id, key, value) VALUES (1, 'visibility', 'public')",
+                "INSERT INTO path_tags(path_id, key, value) VALUES (1, 'scope', 'root')",
                 [],
             )
             .unwrap();
@@ -716,12 +721,12 @@ mod tests {
         let value: String = db
             .conn()
             .query_row(
-                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'visibility'",
+                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'scope'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(value, "public");
+        assert_eq!(value, "root");
     }
 
     #[test]
@@ -737,13 +742,13 @@ mod tests {
             .unwrap();
         db.conn()
             .execute(
-                "INSERT INTO path_tags(path_id, key, value) VALUES (1, 'visibility', 'public')",
+                "INSERT INTO path_tags(path_id, key, value) VALUES (1, 'scope', 'root')",
                 [],
             )
             .unwrap();
         db.conn()
             .execute(
-                "INSERT INTO path_tags(path_id, key, value) VALUES (?, 'visibility', 'private')",
+                "INSERT INTO path_tags(path_id, key, value) VALUES (?, 'scope', 'nearest')",
                 [memory_id],
             )
             .unwrap();
@@ -751,12 +756,12 @@ mod tests {
         let value: String = db
             .conn()
             .query_row(
-                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'visibility'",
+                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'scope'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(value, "private");
+        assert_eq!(value, "nearest");
     }
 
     #[test]
@@ -764,13 +769,13 @@ mod tests {
         let db = db();
         db.conn()
             .execute(
-                "INSERT INTO path_tags(path_id, key, value) VALUES (1, 'visibility', 'public')",
+                "INSERT INTO path_tags(path_id, key, value) VALUES (1, 'scope', 'inherited')",
                 [],
             )
             .unwrap();
         db.conn()
             .execute(
-                "INSERT INTO fact_tags(fact_id, key, value) VALUES (1, 'visibility', 'secret')",
+                "INSERT INTO fact_tags(fact_id, key, value) VALUES (1, 'scope', 'fact')",
                 [],
             )
             .unwrap();
@@ -778,7 +783,7 @@ mod tests {
         let mut stmt = db
             .conn()
             .prepare(
-                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'visibility'",
+                "SELECT value FROM effective_fact_tags WHERE fact_id = 1 AND key = 'scope'",
             )
             .unwrap();
         let values: Vec<String> = stmt
@@ -786,7 +791,7 @@ mod tests {
             .unwrap()
             .map(|v| v.unwrap())
             .collect();
-        assert_eq!(values, ["secret"]);
+        assert_eq!(values, ["fact"]);
     }
 
     #[test]
@@ -812,13 +817,13 @@ mod tests {
         let db = db();
         db.conn()
             .execute(
-                "INSERT INTO fact_tags(fact_id, key, value) VALUES (1, 'visibility', 'public')",
+                "INSERT INTO fact_tags(fact_id, key, value) VALUES (1, 'kind', 'shared')",
                 [],
             )
             .unwrap();
         let rules = [PolicyRule::from_casbin(&strings(&[
             "cli",
-            "tag:visibility=public",
+            "tag:kind=shared",
             "read",
             "allow",
         ]))

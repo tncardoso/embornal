@@ -145,14 +145,17 @@ fn a_fact_shows_the_tags_that_it_holds() {
     // decides who reads the fact. The tags come in the order of their keys.
     assert!(
         page.contains(&format!(
-            "signal 1.000 · {} · kind=note owner=cli</div>",
+            "signal 1.000 · {} · kind=note owner=default</div>",
             today()
         )),
         "{page}"
     );
     // The fact that nobody tagged still says who wrote it.
     assert!(
-        page.contains(&format!("signal 1.000 · {} · owner=cli</div>", today())),
+        page.contains(&format!(
+            "signal 1.000 · {} · owner=default</div>",
+            today()
+        )),
         "{page}"
     );
 }

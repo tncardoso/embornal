@@ -1200,6 +1200,7 @@ pub fn fts_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::acl::DEFAULT_SUBJECT;
     use crate::memory::path::MEMORY_PATH;
 
     fn path(s: &str) -> WikiPath {
@@ -1278,7 +1279,10 @@ mod tests {
         // that the access rules read.
         assert_eq!(
             owner_of(&memory, fact.id),
-            (Some("cli".to_string()), Some("cli".to_string()))
+            (
+                Some(DEFAULT_SUBJECT.to_string()),
+                Some(DEFAULT_SUBJECT.to_string())
+            )
         );
     }
 
@@ -1334,7 +1338,7 @@ mod tests {
                 .unwrap()
                 .get(&TagKey::parse("owner").unwrap())
                 .map(|v| v.to_string()),
-            Some("cli".to_string())
+            Some(DEFAULT_SUBJECT.to_string())
         );
     }
 
@@ -1602,7 +1606,7 @@ mod tests {
             .conn()
             .execute(
                 "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3)
-                 VALUES ('p', 'cli', 'path:/locked/*', 'write', 'deny')",
+                 VALUES ('p', 'default', 'path:/locked/*', 'write', 'deny')",
                 [],
             )
             .unwrap();
@@ -1697,7 +1701,7 @@ mod tests {
             .conn()
             .execute(
                 "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3)
-                 VALUES ('p', 'cli', 'path:/secret/*', 'read', 'deny')",
+                 VALUES ('p', 'default', 'path:/secret/*', 'read', 'deny')",
                 [],
             )
             .unwrap();
@@ -1802,7 +1806,7 @@ mod tests {
             .conn()
             .execute(
                 "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3)
-                 VALUES ('p', 'cli', 'path:/a/secret/*', 'read', 'deny')",
+                 VALUES ('p', 'default', 'path:/a/secret/*', 'read', 'deny')",
                 [],
             )
             .unwrap();
@@ -2437,7 +2441,7 @@ mod tests {
             .conn()
             .execute(
                 "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3)
-                 VALUES ('p', 'cli', 'path:/secret/*', 'read', 'deny')",
+                 VALUES ('p', 'default', 'path:/secret/*', 'read', 'deny')",
                 [],
             )
             .unwrap();

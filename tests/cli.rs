@@ -353,7 +353,7 @@ fn tree_hides_what_the_policy_refuses() {
     let conn = rusqlite::Connection::open(sandbox.home.join("memory.db")).unwrap();
     conn.execute(
         "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3)
-         VALUES ('p', 'cli', 'path:/a/secret/*', 'read', 'deny')",
+         VALUES ('p', 'default', 'path:/a/secret/*', 'read', 'deny')",
         [],
     )
     .unwrap();
@@ -611,15 +611,21 @@ fn cat_and_recall_show_fact_metadata_when_asked() {
     ]);
 
     let document = sandbox.ok(&["memory", "cat", "/notes", "--meta"]);
-    assert!(document.contains("Owner: cli"), "{document}");
-    assert!(document.contains("Tags: kind=note owner=cli"), "{document}");
+    assert!(document.contains("Owner: default"), "{document}");
+    assert!(
+        document.contains("Tags: kind=note owner=default"),
+        "{document}"
+    );
 
     let recalled = sandbox.ok(&["memory", "recall", "tagged", "--meta"]);
     assert!(recalled.contains("Owner"), "{recalled}");
-    assert!(recalled.contains("kind=note owner=cli"), "{recalled}");
+    assert!(recalled.contains("kind=note owner=default"), "{recalled}");
 
     let plain = sandbox.ok(&["memory", "recall", "tagged", "--plain", "--meta"]);
-    assert_eq!(plain, "/notes\tcli\tkind=note owner=cli\ta tagged note\n");
+    assert_eq!(
+        plain,
+        "/notes\tdefault\tkind=note owner=default\ta tagged note\n"
+    );
 }
 
 #[test]
@@ -656,7 +662,7 @@ fn a_deny_policy_hides_the_facts_from_every_command() {
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute(
         "INSERT INTO casbin_rule(ptype, v0, v1, v2, v3)
-         VALUES ('p', 'cli', 'path:/secret/*', 'read', 'deny')",
+         VALUES ('p', 'default', 'path:/secret/*', 'read', 'deny')",
         [],
     )
     .unwrap();
@@ -734,9 +740,18 @@ fn a_subject_reads_its_own_facts_and_not_the_facts_of_another() {
         "bob wrote this",
     ]);
 
-    let alice = sandbox.ok(&["--as-subject", "alice", "memory", "cat", "/notes"]);
+    let alice = sandbox.ok(&[
+        "--as-subject",
+        "alice",
+        "memory",
+        "cat",
+        "/notes",
+        "--meta",
+    ]);
     assert!(alice.contains("alice wrote this"), "{alice}");
     assert!(!alice.contains("bob wrote this"), "{alice}");
+    assert!(alice.contains("Owner: alice"), "{alice}");
+    assert!(alice.contains("Tags: owner=alice"), "{alice}");
 
     let bob = sandbox.ok(&["--as-subject", "bob", "memory", "recall", "wrote"]);
     assert!(bob.contains("bob wrote this"), "{bob}");

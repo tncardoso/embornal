@@ -18,15 +18,9 @@ ALTER TABLE facts ADD COLUMN owner TEXT;
 
 CREATE INDEX facts_owner_idx ON facts(owner) WHERE deleted_at IS NULL;
 
--- The facts that the memory holds about itself belong to the memory. Every
--- subject reads them, through the `everyone` role.
-UPDATE facts
-   SET owner = 'system'
- WHERE path_id IN (SELECT id FROM paths WHERE full_path = '/memory');
-
--- Every other fact comes from the one subject that could write before this
--- migration.
-UPDATE facts SET owner = 'cli' WHERE owner IS NULL;
+-- The local command line and the facts that initialize a memory use the
+-- default subject.
+UPDATE facts SET owner = 'default' WHERE owner IS NULL;
 
 -- The access rules read tags, not columns, so each fact carries its owner as
 -- a tag as well. A tag on the fact wins over a tag that the fact takes from a
@@ -34,13 +28,21 @@ UPDATE facts SET owner = 'cli' WHERE owner IS NULL;
 INSERT OR REPLACE INTO fact_tags(fact_id, key, value)
 SELECT id, 'owner', owner FROM facts WHERE owner IS NOT NULL;
 
+-- The initial instructions are public. Other facts of the default subject do
+-- not get this tag and stay private unless their writer marks them public.
+INSERT OR REPLACE INTO fact_tags(fact_id, key, value)
+SELECT f.id, 'visibility', 'public'
+  FROM facts f
+  JOIN paths p ON p.id = f.path_id
+ WHERE p.full_path = '/memory';
+
 -- Every subject that this memory already knows joins the role that reads the
 -- facts of the memory itself.
 INSERT OR IGNORE INTO casbin_rule(ptype, v0, v1)
 SELECT DISTINCT 'g', v0, 'everyone' FROM casbin_rule WHERE ptype = 'p' AND v0 <> '';
 
 INSERT OR IGNORE INTO casbin_rule(ptype, v0, v1, v2, v3)
-VALUES ('p', 'everyone', 'tag:owner=system', 'read', 'allow');
+VALUES ('p', 'everyone', 'tag:visibility=public', 'read', 'allow');
 
 -- ---------------------------------------------------------------------------
 -- The tokens

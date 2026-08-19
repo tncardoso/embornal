@@ -27,6 +27,10 @@ The token also gives `alice` the rules of a new user: it writes anywhere, it
 reads what it wrote, and it reads the facts that the memory holds about
 itself. See [The memory commands](cli.md#token).
 
+Facts that this client writes use `alice`, the subject named by the token, as
+the owner. Each fact also carries the `owner=alice` tag. A command that works
+on the server file directly uses `default` and `owner=default` instead.
+
 Then start the server:
 
 ```bash
@@ -82,8 +86,12 @@ That build needs no cmake and no C++ compiler, and it downloads none of the
 ## What the token says
 
 The token says which subject asks, and nothing else does. `--as-subject` works
-on a memory of this machine only; a client that gives it stops with an error,
-because a client that could name a subject could read the facts of anybody.
+on a memory of this machine only. A client can give the flag, but the client
+ignores it and the token subject still owns new facts.
+
+Every token subject joins the `everyone` role by default. This role reads
+facts tagged with `visibility=public`. The server still requires a valid token
+for every request.
 
 To stop a token:
 

@@ -108,16 +108,8 @@ fn open(subject: Option<String>) -> Result<Backend> {
     let mut config = Config::load(&paths.config_file())?;
 
     if let Some(server) = &config.server {
-        // On a server the token says who asks, and nothing else does. A
-        // client that could name a subject could read the facts of anybody,
-        // so a request for one stops here instead of being ignored quietly.
-        if subject.is_some() {
-            return Err(Error::BadArgument(
-                "--as-subject works on a memory of this machine only. On a \
-                 server the token says who asks."
-                    .to_string(),
-            ));
-        }
+        // On a server the token says who asks, and nothing else does. The
+        // local subject flag has no effect in client mode.
         return Ok(Backend::Remote(Box::new(Client::open(server)?)));
     }
 

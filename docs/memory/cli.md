@@ -22,7 +22,12 @@ A global flag names who asks:
 embornal --as-subject agent memory ls
 ```
 
-The default subject is `cli`. Access control reads this name.
+The default subject is `default`. Access control reads this name. Facts that
+the local command line writes use `default` as their owner and carry the
+`owner=default` tag.
+
+In client mode, the command accepts `--as-subject` but ignores it. The subject
+of the configured token owns each new fact.
 
 ## store
 
@@ -300,10 +305,11 @@ p, alice,    tag:owner=alice, write,  allow
 p, alice,    tag:owner=alice, delete, allow
 p, alice,    path:/*,         write,  allow
 g, alice,    everyone
+p, everyone, tag:visibility=public, read, allow
 ```
 
-The subject thus writes anywhere, reads what it wrote, and reads the facts
-that the memory holds about itself. See
+The subject thus writes anywhere, reads what it wrote, and reads public facts.
+The initial facts under `/memory` are public. See
 [Who owns a fact](model.md#who-owns-a-fact).
 
 ```
