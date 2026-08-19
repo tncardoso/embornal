@@ -65,11 +65,12 @@ machine that asks keeps no facts and needs no model. See
 ## Teach an agent
 
 ``` bash
-embornal skill > .claude/skills/memory/SKILL.md
+embornal bootstrap >> ~/.claude/AGENTS.md
 ```
 
-The command writes the instructions that teach an agent to use the memory. It
-touches no file of its own, so it answers before a memory exists.
+The command writes the instructions that teach an agent to use the memory, and
+should be added to the global AGENTS.md. It touches no file of its own, so it
+answers before a memory exists.
 
 !!! tip
 

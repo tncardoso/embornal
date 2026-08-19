@@ -3,14 +3,14 @@
 //! This module reads the arguments and hands the work to the memory. Each
 //! group of commands lives in its own module:
 //!
+//! - [`bootstrap`]: the bootstrap instructions for agents to use the memory.
 //! - [`memory`]: everything below `embornal memory`.
 //! - [`token`]: the secrets that let a client reach a server.
-//! - [`skill`]: the instructions that teach an agent to use the memory.
 //!
 //! [`table`] holds the output shape that the commands share.
 
+pub mod bootstrap;
 pub mod memory;
-pub mod skill;
 pub mod table;
 pub mod token;
 
@@ -52,16 +52,16 @@ pub enum Command {
     Token(token::TokenCommand),
     /// Puts this memory behind HTTP, so that other machines can use it.
     Serve(ServeArgs),
-    /// Writes the instructions that teach an agent to use the memory.
-    Skill(skill::SkillArgs),
+    /// Writes the bootstrap instructions for agents. Add to ~/.claude/AGENTS.md
+    Bootstrap(bootstrap::BootstrapArgs),
 }
 
 /// Runs the command and writes to `out`.
 pub fn run(cli: Cli, out: &mut impl Write) -> Result<()> {
     match cli.command {
-        // The skill is text. It touches no file, so it answers even before a
+        // The bootstrap is text. It touches no file, so it answers even before a
         // memory exists.
-        Command::Skill(args) => skill::run(args, out),
+        Command::Bootstrap(args) => bootstrap::run(args, out),
 
         Command::Memory(command) => memory::run(command, open(cli.as_subject)?, out),
 

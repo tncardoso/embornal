@@ -4,14 +4,14 @@ All work on the memory goes through `embornal memory`. One command sits
 outside that group:
 
 ```
-embornal skill
+embornal bootstrap
 ```
 
 It writes the instructions that teach an agent to use the memory. The text
-goes to standard output, so it drops into a skill file:
+goes to standard output, and should be added to the global AGENTS.md:
 
 ```
-$ embornal skill > .claude/skills/memory/SKILL.md
+$ embornal bootstrap >> ~/.claude/AGENTS.md
 ```
 
 The command touches no file of its own, so it answers before a memory exists.

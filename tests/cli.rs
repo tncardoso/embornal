@@ -800,43 +800,45 @@ fn the_help_names_each_command() {
         assert!(help.contains(command), "{command} is missing from the help");
     }
     let top = sandbox.ok(&["--help"]);
-    for command in ["memory", "token", "skill"] {
+    for command in ["memory", "token", "bootstrap"] {
         assert!(top.contains(command), "{command} is missing from the help");
     }
 }
 
 #[test]
-fn the_skill_reads_as_a_skill_file() {
-    let sandbox = Sandbox::new("skill");
-    let skill = sandbox.ok(&["skill"]);
+fn the_bootstrap_reads_as_instructions() {
+    let sandbox = Sandbox::new("bootstrap");
+    let bootstrap = sandbox.ok(&["bootstrap"]);
 
-    assert!(skill.starts_with("---\nname: memory\n"), "{skill}");
-    assert!(skill.contains("the `embornal` command"));
-    assert!(skill.contains("embornal memory cat /memory"));
-    assert!(skill.contains("embornal memory recall [SEARCH TERMS]"));
-    assert!(skill.contains("Let updates happen in the main agent."));
+    assert!(bootstrap.starts_with("## Memory\n"), "{bootstrap}");
+    assert!(bootstrap.contains("the `embornal` command"));
+    assert!(bootstrap.contains("embornal memory cat /memory"));
+    assert!(bootstrap.contains("embornal memory recall <query>"));
+    assert!(bootstrap.contains(
+        "Subagents should never update memories. Leave that for the main agent"
+    ));
 }
 
 #[test]
-fn the_skill_needs_no_memory_on_disk() {
-    let sandbox = Sandbox::new("skill-no-db");
+fn the_bootstrap_needs_no_memory_on_disk() {
+    let sandbox = Sandbox::new("bootstrap-no-db");
     // The command runs before any other, so nothing built the memory yet.
-    let skill = sandbox.ok(&["skill"]);
+    let bootstrap = sandbox.ok(&["bootstrap"]);
 
-    assert!(!skill.is_empty());
+    assert!(!bootstrap.is_empty());
     assert!(
         !sandbox.home.join("memory.db").exists(),
-        "the skill command must not build a memory"
+        "the bootstrap command must not build a memory"
     );
 }
 
 #[test]
-fn the_skill_names_only_commands_that_exist() {
-    let sandbox = Sandbox::new("skill-commands");
-    let skill = sandbox.ok(&["skill"]);
+fn the_bootstrap_names_only_commands_that_exist() {
+    let sandbox = Sandbox::new("bootstrap-commands");
+    let bootstrap = sandbox.ok(&["bootstrap"]);
 
     // Each `embornal memory X` in the text must be a real command.
-    for line in skill.lines() {
+    for line in bootstrap.lines() {
         for start in line.match_indices("embornal memory ").map(|(i, _)| i) {
             let rest = &line[start + "embornal memory ".len()..];
             let name: String = rest
@@ -846,7 +848,7 @@ fn the_skill_names_only_commands_that_exist() {
             assert!(
                 ["store", "ls", "tree", "cat", "recall", "reindex", "serve"]
                     .contains(&name.as_str()),
-                "the skill names '{name}', which is not a command"
+                "the bootstrap names '{name}', which is not a command"
             );
         }
     }

@@ -54,10 +54,10 @@ $ embornal memory recall "where do my notes live"
 | /projects/embornal  |  1.000 | The memory lives in SQLite. |
 ```
 
-To teach an agent to use the memory, write the instructions to a skill file:
+To teach an agent to use the memory, add the instructions to the global AGENTS.md:
 
 ``` bash
-embornal skill > .claude/skills/memory/SKILL.md
+embornal bootstrap >> AGENTS.md
 ```
 
 ## Where to go

@@ -31,16 +31,13 @@ const MIGRATION_002: &str = include_str!("schema/002_owner_tokens.sql");
 ///
 /// The memory carries its own instructions, so an agent that reads
 /// `/memory` learns how to use the rest of the tree.
-pub const MEMORY_SEED_LEN: usize = MEMORY_SEED.len();
+const MEMORY_SEED_TEXT: &str = include_str!("../prompts/memory.txt");
 
-const MEMORY_SEED: [&str; 6] = [
-    "A path names one topic. Every fact below a path tells something about that topic.",
-    "Write one small fact for each statement.",
-    "Write a link to another path in the [[/path]] form.",
-    "A fact does not change. To correct a fact, write a new fact that supersedes it.",
-    "A tag has the key=value form. A tag on a path applies to each fact below that path.",
-    "The path /memory holds the facts about the memory itself.",
-];
+fn memory_seed() -> Vec<&'static str> {
+    MEMORY_SEED_TEXT.lines().filter(|line| !line.is_empty()).collect()
+}
+
+pub const MEMORY_SEED_LEN: usize = 6;
 
 static VEC_EXTENSION: Once = Once::new();
 
@@ -231,7 +228,7 @@ fn seed(tx: &Connection) -> Result<()> {
         "INSERT INTO facts(ulid, path_id, content, created_at, stability_days)
          VALUES (?, ?, ?, ?, ?)",
     )?;
-    for content in MEMORY_SEED {
+    for content in memory_seed() {
         insert_fact.execute(params![
             Ulid::generate().to_string(),
             memory_id,
@@ -459,7 +456,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count as usize, MEMORY_SEED.len());
+        assert_eq!(count as usize, MEMORY_SEED_LEN);
     }
 
     /// Reads the `p` rules of one subject out of the policy table.
@@ -531,7 +528,7 @@ mod tests {
             .map(|row| row.unwrap())
             .collect();
 
-        assert_eq!(rows.len(), MEMORY_SEED.len());
+        assert_eq!(rows.len(), MEMORY_SEED_LEN);
         for (owner, tag) in rows {
             // The column is the truth, and the tag says the same, because the
             // access rules read the tag.
@@ -671,7 +668,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))
             .unwrap();
         assert_eq!(paths, 2);
-        assert_eq!(facts as usize, MEMORY_SEED.len());
+        assert_eq!(facts as usize, MEMORY_SEED_LEN);
         std::fs::remove_dir_all(&dir).ok();
     }
 

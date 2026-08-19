@@ -107,10 +107,10 @@ $ embornal serve
 The client then needs only the address and the token in its `config.yaml`, and
 no embedding model at all. See [The server](docs/memory/server.md).
 
-To teach an agent to use the memory, write the instructions to a skill file:
+To teach an agent to use the memory, add the instructions to the global AGENTS.md:
 
 ```bash
-embornal skill > .claude/skills/memory/SKILL.md
+embornal bootstrap >> AGENTS.md
 ```
 
 ## Docs
