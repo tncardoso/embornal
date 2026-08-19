@@ -83,10 +83,16 @@ enum Source {
     /// This memory runs on the keyword index alone.
     Off,
     /// The weights load on the first call.
-    Gguf {
-        config: EmbeddingConfig,
-        paths: Paths,
-    },
+    ///
+    /// The box keeps the empty arm small. A memory that never embeds is the
+    /// common one: every `ls` and every client of a remote server has it.
+    Gguf(Box<Weights>),
+}
+
+/// What the provider needs to find the weights and load them.
+struct Weights {
+    config: EmbeddingConfig,
+    paths: Paths,
 }
 
 impl Provider {
@@ -94,10 +100,10 @@ impl Provider {
     pub fn from_config(config: &Config, paths: &Paths) -> Result<Self> {
         let source = match config.embedding.provider_name() {
             None => Source::Off,
-            Some(PROVIDER_GGUF) => Source::Gguf {
+            Some(PROVIDER_GGUF) => Source::Gguf(Box::new(Weights {
                 config: config.embedding.clone(),
                 paths: paths.clone(),
-            },
+            })),
             Some(other) => return Err(Error::UnknownProvider(other.to_string())),
         };
         Ok(Self { source, made: None })
@@ -132,8 +138,8 @@ impl Provider {
         if self.made.is_none() {
             match &self.source {
                 Source::Off => return Ok(None),
-                Source::Gguf { config, paths } => {
-                    self.made = Some(build_gguf(config, paths)?);
+                Source::Gguf(weights) => {
+                    self.made = Some(build_gguf(&weights.config, &weights.paths)?);
                 }
             }
         }

@@ -41,6 +41,16 @@ impl TagKey {
     }
 }
 
+impl<'de> Deserialize<'de> for TagKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
 impl fmt::Display for TagKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
@@ -60,11 +70,28 @@ impl TagValue {
         if trimmed.chars().count() > MAX_TAG_VALUE_LEN {
             return Err(TagError::ValueTooLong(trimmed.to_string()));
         }
+        // The access check writes the tags of a fact into one string, with a
+        // control character between the fields. A value that holds such a
+        // character could write a field of its own, and so claim a tag that
+        // the fact does not carry.
+        if trimmed.chars().any(char::is_control) {
+            return Err(TagError::ControlCharacter(trimmed.to_string()));
+        }
         Ok(Self(trimmed.to_string()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for TagValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -75,10 +102,22 @@ impl fmt::Display for TagValue {
 }
 
 /// One `key=value` pair.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tag {
     pub key: TagKey,
     pub value: TagValue,
+}
+
+/// A tag travels as the `key=value` text that a person writes, which is what
+/// [`Tag::parse`] reads back. The two must agree, or a tag that goes out
+/// cannot come home.
+impl Serialize for Tag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 impl Tag {
@@ -128,6 +167,26 @@ impl<'de> Deserialize<'de> for Tag {
 /// always print the same way.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TagSet(BTreeMap<TagKey, TagValue>);
+
+/// A set of tags travels as a list of `key=value` texts, in the order of the
+/// keys, because that is how a person reads it and how a fact carries it.
+impl Serialize for TagSet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_seq(self.iter())
+    }
+}
+
+impl<'de> Deserialize<'de> for TagSet {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Vec::<Tag>::deserialize(deserializer)?.into_iter().collect())
+    }
+}
 
 impl TagSet {
     pub fn new() -> Self {
@@ -220,6 +279,18 @@ mod tests {
 
     fn tag(s: &str) -> Tag {
         Tag::parse(s).unwrap()
+    }
+
+    #[test]
+    fn a_value_cannot_carry_a_field_of_its_own_into_the_access_check() {
+        // The access check writes the tags of a fact into one string, with
+        // this character between the fields. A value that held it could name
+        // a tag that the fact does not carry, and so read what it must not.
+        assert!(Tag::parse("a=b\u{1f}tag:visibility=public").is_err());
+        assert!(TagValue::parse("one\ntwo").is_err());
+        assert!(TagValue::parse("one\ttwo").is_err());
+        // A space is not a control character, and a value may hold one.
+        assert!(TagValue::parse("one two").is_ok());
     }
 
     #[test]

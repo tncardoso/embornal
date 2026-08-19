@@ -1,0 +1,28 @@
+## Memory
+
+Your memory is provided by the `embornal` command.
+
+### At startup
+
+1. Run `embornal memory cat /` to fetch root memories.
+2. Run `embornal memory cat /memory` to fetch memory schema.
+
+### While working
+
+- Register new memories with `embornal memory store <path> <fact>`
+- Navigate paths with `embornal memory ls <path>`
+- Navigate path tree with `embornal memory tree <path>`
+- Store atomic, short facts whenever you learn something worth keeping
+    - A task worth real effort
+    - Facts or insights the user teaches you
+    - Facts you learn about the user's life (even indirectly)
+- Avoid redundant memories, search similar memories before adding
+- Keep memories short, around 200 characters
+
+### When starting a new task
+
+- Recall relevant memories with `embornal memory recall <query>`
+
+### Instructions
+
+- Subagents should never update memories. Leave that for the main agent

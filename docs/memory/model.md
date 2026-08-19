@@ -3,14 +3,32 @@
 The memory is a wiki of small facts. An agent writes one fact at a time and
 finds it again by keyword, by meaning, or by how strong the fact still is.
 
-The memory keeps two files in `$HOME/.embornal`:
+The memory keeps its files in three directories, because the files are of
+three kinds:
 
-| File          | Content                    |
-| ------------- | -------------------------- |
-| `memory.db`   | The tree, the facts, the two indexes and the access rules |
-| `config.yaml` | The settings                |
+| File                              | Directory                  | Content |
+| --------------------------------- | -------------------------- | ------- |
+| `embornal/config.yaml`            | `$XDG_CONFIG_HOME`         | The settings |
+| `embornal/memory.db`              | `$XDG_DATA_HOME`           | The tree, the facts, the two indexes and the access rules |
+| `embornal/models/`                | `$XDG_CACHE_HOME`          | The weights of the embedding model |
 
-`EMBORNAL_HOME` moves the directory.
+A backup must hold `memory.db`. The weights are a download that the tool makes
+again, so a backup can leave them out.
+
+If the directories have no value, they fall back to `~/.config`, `~/.local/share`
+and `~/.cache`.
+
+macOS reads no `XDG` variable. It puts `config.yaml` and `memory.db` in
+`~/Library/Application Support/embornal`, and the weights in
+`~/Library/Caches/embornal`.
+
+`EMBORNAL_HOME` puts the three in one directory.
+
+An older build kept all the files in `$HOME/.embornal`. The first command of
+this build moves `config.yaml` and `memory.db` out of that directory and says
+which files it moved. It moves a file only if the new place is still empty, so
+a memory that is already in the new place stays as it is. The weights stay
+where they are.
 
 ## Paths
 
@@ -37,6 +55,10 @@ A fact is one small statement that belongs to a path.
 A fact does not change. To correct a fact, write a new fact and point
 `supersedes_id` at the old one. To remove a fact, set `deleted_at`. The
 history of what the memory believed stays readable.
+
+Each fact holds the name of the subject that wrote it, in the `owner` column.
+The memory writes that name. A writer cannot give it, because the access rules
+read it: see [Who owns a fact](#who-owns-a-fact).
 
 Content can hold a link in the `[[/path]]` form. The memory stores the text as
 it comes and reads the links when it shows the fact.
@@ -109,5 +131,36 @@ A read does not test each fact. It asks Casbin for the permissions of the
 subject, turns them into one `WHERE` fragment and lets the database drop what
 the subject must not see.
 
-A new database gives the `cli` subject full access to the whole tree. Real
-subjects come later.
+A new database gives the `default` subject full access to the whole tree, so a
+memory on one machine works with no policy of its own.
+
+### Who owns a fact
+
+The `owner` column of a fact holds the subject that wrote it. The same name
+goes into the `owner` tag of that fact, because the access rules read tags,
+not columns. The column is the record; the tag is the form that Casbin reads.
+
+The memory writes both. A `store` that carries an `owner` tag stops, and the
+fact does not reach the memory. A tag with the key `owner` on a path does not
+reach a fact either, because a tag on the fact beats a tag that it inherits.
+
+This lets one rule give a subject its own facts and nothing more:
+
+```
+p, alice, tag:owner=alice, read, allow
+```
+
+The local command line and the initial facts under `/memory` use the subject
+`default`. The initial facts also carry `visibility=public`. Every
+authenticated subject reads public facts through the `everyone` role:
+
+```
+g, alice,    everyone
+p, everyone, tag:visibility=public, read, allow
+```
+
+A fact owned by `default` is not public unless it also carries the public
+visibility tag.
+
+A subject name becomes the value of a tag, so it holds no space, no `=` and
+no `,`.

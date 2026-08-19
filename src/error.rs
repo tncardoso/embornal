@@ -1,5 +1,6 @@
 //! Error types shared by the memory subsystem.
 
+use crate::memory::acl::MAX_SUBJECT_LEN;
 use crate::memory::path::{MAX_PATH_LEN, MAX_SEGMENT_LEN};
 use crate::memory::tag::MAX_TAG_VALUE_LEN;
 use std::path::PathBuf;
@@ -97,8 +98,38 @@ pub enum Error {
     #[error("a fact needs content")]
     EmptyContent,
 
+    /// The memory writes this tag itself, so nobody else may send it.
+    #[error("the tag '{0}' belongs to the memory: it names the writer of a fact")]
+    ReservedTag(String),
+
     #[error("the server failed: {0}")]
     Serve(String),
+
+    /// An argument of the command line that the tool cannot read.
+    #[error("{0}")]
+    BadArgument(String),
+
+    /// The caller gave no token, or a token that opens nothing.
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("there is no token {0}")]
+    NoSuchToken(String),
+
+    #[error("{0}")]
+    Token(String),
+
+    /// The server did not answer at all. The commands stop here: they never
+    /// fall back to a memory on this machine.
+    #[error("the memory at {url} does not answer: {reason}")]
+    ServerUnreachable { url: String, reason: String },
+
+    #[error("the memory at {url} refused the request ({status}): {message}")]
+    Server {
+        url: String,
+        status: u16,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -142,6 +173,9 @@ pub enum TagError {
 
     #[error("tag value '{0}' is longer than {MAX_TAG_VALUE_LEN} characters")]
     ValueTooLong(String),
+
+    #[error("a tag value must not hold a control character")]
+    ControlCharacter(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -164,4 +198,15 @@ pub enum PolicyError {
 
     #[error("'{0}' is not a known effect")]
     UnknownEffect(String),
+
+    #[error("a subject needs a name")]
+    EmptySubject,
+
+    #[error(
+        "subject '{0}' is invalid: use no space, no '=' and no ',', because the name becomes an access tag"
+    )]
+    InvalidSubject(String),
+
+    #[error("subject '{0}' is longer than {MAX_SUBJECT_LEN} characters")]
+    SubjectTooLong(String),
 }

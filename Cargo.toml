@@ -1,6 +1,6 @@
 [package]
 name = "embornal"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A toolkit for agents."
@@ -34,10 +34,12 @@ gguf = ["dep:llama-cpp-2", "dep:hf-hub"]
 
 [dependencies]
 axum = "0.8.9"
+base64 = "0.22.1"
 casbin = { version = "2.20.0", default-features = false, features = ["runtime-tokio", "incremental", "cached"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.4", features = ["derive"] }
 dirs = "6.0.0"
+getrandom = "0.3.4"
 hf-hub = { version = "1", features = ["blocking"], optional = true }
 # No OpenMP: it makes the binary need libgomp at run time, which a released
 # binary must not do. `static-stdcxx` puts libstdc++ in the binary, for the
@@ -45,11 +47,14 @@ hf-hub = { version = "1", features = ["blocking"], optional = true }
 llama-cpp-2 = { version = "0.1", default-features = false, features = ["common", "static-stdcxx"], optional = true }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 serde_norway = "0.9.42"
+sha2 = "0.11.0"
 sqlite-vec = "0.1.9"
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
-ulid = "3.0.0"
+ulid = { version = "3.0.0", features = ["serde"] }
+ureq = { version = "3.4.0", default-features = false, features = ["rustls", "json"] }
 
 [dev-dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }

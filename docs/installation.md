@@ -147,11 +147,12 @@ Delete the binary, the receipt of the installation, and the memory itself:
 ```bash
 rm ~/.local/bin/embornal ~/.local/bin/embornal-update
 rm -r ~/.config/embornal
-rm -r ~/.embornal
+rm -r ~/.local/share/embornal
+rm -r ~/.cache/embornal
 ```
 
-The last line deletes the facts. Keep `~/.embornal` to install Embornal again
-later with the memory that it had.
+The third line deletes the facts. Keep `~/.local/share/embornal` to install
+Embornal again later with the memory that it had.
 
 The installer also wrote one line in the profile of the shell, for example in
 `~/.bashrc` or in `~/.zshenv`. Delete that line if no other program uses

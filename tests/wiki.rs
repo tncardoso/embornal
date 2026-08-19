@@ -24,7 +24,7 @@ impl Server {
     /// A list holds the path, the content, and the flags that the store needs,
     /// such as `--tag`.
     fn start_with(name: &str, port: u16, stores: &[Vec<&str>]) -> Self {
-        let home = std::env::temp_dir().join(format!("embornal-serve-{name}"));
+        let home = std::env::temp_dir().join(format!("embornal-wiki-{name}"));
         std::fs::remove_dir_all(&home).ok();
         std::fs::create_dir_all(&home).unwrap();
 
@@ -42,7 +42,7 @@ impl Server {
         }
 
         let mut child = Command::new(env!("CARGO_BIN_EXE_embornal"))
-            .args(["memory", "serve", "--port", &port.to_string()])
+            .args(["memory", "wiki", "--port", &port.to_string()])
             .env("EMBORNAL_EMBEDDING", "off")
             .env("EMBORNAL_HOME", &home)
             .stdout(Stdio::piped())
@@ -119,7 +119,11 @@ fn a_page_shows_the_metadata_of_its_path() {
     );
     let page = server.get("/notes");
 
-    assert!(page.contains("2 facts · 1 child · signal 1.000"), "{page}");
+    assert!(
+        page.contains("2 facts · 3 facts total · 1 child · signal 1.000"),
+        "{page}"
+    );
+    assert!(page.contains("a</a> <span class=\"count\">1 fact · 1 fact total"));
     // Each fact carries its own strength and the day of its writing.
     let today = format!("signal 1.000 · {}", today());
     assert_eq!(page.matches(today.as_str()).count(), 2, "{page}");
@@ -137,13 +141,18 @@ fn a_fact_shows_the_tags_that_it_holds() {
     );
     let page = server.get("/notes");
 
+    // Every fact carries the tag that names its writer, because that tag
+    // decides who reads the fact. The tags come in the order of their keys.
     assert!(
-        page.contains(&format!("signal 1.000 · {} · kind=note</div>", today())),
+        page.contains(&format!(
+            "signal 1.000 · {} · kind=note owner=default</div>",
+            today()
+        )),
         "{page}"
     );
-    // The fact with no tag stops at the date.
+    // The fact that nobody tagged still says who wrote it.
     assert!(
-        page.contains(&format!("signal 1.000 · {}</div>", today())),
+        page.contains(&format!("signal 1.000 · {} · owner=default</div>", today())),
         "{page}"
     );
 }
@@ -171,7 +180,10 @@ fn a_path_with_no_fact_shows_no_signal() {
     let page = server.get("/notes");
 
     // The metadata line stops at the counts, and no fact carries a strength.
-    assert!(page.contains("0 facts · 1 child</p>"), "{page}");
+    assert!(
+        page.contains("0 facts · 1 fact total · 1 child</p>"),
+        "{page}"
+    );
     assert!(!page.contains("<div class=\"about\">"), "{page}");
 }
 
