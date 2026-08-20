@@ -8,6 +8,9 @@
 
 [project]
 
+docs_dir = "docs"
+site_dir = "site/public/docs"
+
 # The site_name is shown in the page header and the browser window title
 #
 # Read more: https://zensical.org/docs/setup/basics/#site_name
@@ -27,7 +30,7 @@ site_author = "<your name here>"
 # The site_url is the canonical URL for your site. When building online
 # documentation you should set this.
 # Read more: https://zensical.org/docs/setup/basics/#site_url
-#site_url = "https://www.example.com/"
+site_url = "https://embornal.com/docs/"
 
 # The copyright notice appears in the page footer and can contain an HTML
 # fragment.
@@ -44,10 +47,19 @@ Copyright &copy; 2026 The authors
 # can be defined using TOML syntax.
 #
 # Read more: https://zensical.org/docs/setup/navigation/
-# nav = [
-#   { "Get started" = "index.md" },
-#   { "Markdown in 5min" = "markdown.md" },
-# ]
+nav = [
+  { "Embornal" = "index.md" },
+  { "Installation" = "installation.md" },
+  { "Releasing" = "releasing.md" },
+  { "Website" = "site.md" },
+  { "Memory" = [
+    { "Memory" = "memory/index.md" },
+    { "The memory commands" = "memory/cli.md" },
+    { "Embeddings" = "memory/embeddings.md" },
+    { "The memory model" = "memory/model.md" },
+    { "The server" = "memory/server.md" },
+  ] },
+]
 
 # With the "extra_css" option you can add your own CSS styling to customize
 # your Zensical project according to your needs. You can add any number of
@@ -57,7 +69,7 @@ Copyright &copy; 2026 The authors
 #
 # Read more: https://zensical.org/docs/customization/#additional-css
 #
-#extra_css = ["stylesheets/extra.css"]
+#extra_css = ["stylesheets/header.css"]
 
 # With the `extra_javascript` option you can add your own JavaScript to your
 # project to customize the behavior according to your needs.

@@ -1,0 +1,163 @@
+{{ define "main" }}
+  {{ $github := site.Params.githubURL }}
+  {{ $docs := site.Params.docsURL }}
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="pixel-field" aria-hidden="true">
+        <span class="pixel pixel-a"></span><span class="pixel pixel-b"></span>
+        <span class="pixel pixel-c"></span><span class="pixel pixel-d"></span>
+        <span class="pixel pixel-e"></span>
+      </div>
+      <nav class="nav container" aria-label="Main navigation">
+        <a class="brand" href="/" aria-label="Embornal home">
+          <span class="brand-mark">e</span><span>embornal</span>
+        </a>
+        <div class="nav-links">
+          <a href="/#memory">Memory</a>
+          <a href="{{ $docs }}">Docs</a>
+          <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+          <a class="button button-small button-light" href="{{ $docs }}installation/">Get started</a>
+        </div>
+        <details class="mobile-nav">
+          <summary aria-label="Open navigation menu">
+            <span class="mobile-nav-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+          </summary>
+          <div class="mobile-nav-panel">
+            <a href="/#memory">Memory</a>
+            <a href="{{ $docs }}">Docs</a>
+            <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+            <a class="button button-small button-light" href="{{ $docs }}installation/">Get started</a>
+          </div>
+        </details>
+      </nav>
+
+      <div class="hero-content container" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow eyebrow-dark">CONTEXTUAL MEMORY FOR AGENTS</p>
+          <h1 id="hero-title">Give your agents a memory.</h1>
+          <p class="hero-lede">Embornal keeps small facts in a wiki-like tree. Every memory stays contextualized by its path, so agents recall the right fact for the task.</p>
+          <div class="hero-context" aria-label="Example contextual memory path">
+            <code>/projects/embornal</code><span>facts live in a wiki path</span>
+          </div>
+          <div class="hero-actions">
+            <a class="button button-light" href="#install">Install Embornal</a>
+            <a class="button button-outline" href="{{ $docs }}">Read the docs</a>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Embornal banner and terminal example">
+          <div class="banner-card">
+            <img src="{{ "assets/banner.png" | relURL }}" alt="Embornal, AI toolkit for agents">
+          </div>
+          <div class="terminal terminal-small">
+            <div class="terminal-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <pre><code>$ embornal memory recall "what matters"
+✓ 3 facts found · instantly</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="why section" id="memory" aria-labelledby="why-title">
+      <div class="container">
+        <div class="section-heading split-heading">
+          <div>
+            <p class="eyebrow">MEMORY, WITHOUT THE MESS</p>
+            <h2 id="why-title">Agents forget.<br>Embornal remembers.</h2>
+          </div>
+          <p>A plain notes file grows into noise. Embornal returns only the few facts that the current task needs.</p>
+        </div>
+        <div class="reasons">
+          <article>
+            <p class="reason-number">01 / SMALL FACTS</p>
+            <h3>Write one fact at a time.</h3>
+            <p>Atomic knowledge stays easy to update, rank, and reuse.</p>
+          </article>
+          <article>
+            <p class="reason-number">02 / SMART RECALL</p>
+            <h3>Ask in your own words.</h3>
+            <p>Find facts by word, meaning, or how useful they remain.</p>
+          </article>
+          <article>
+            <p class="reason-number">03 / ONE BINARY</p>
+            <h3>Keep the setup quiet.</h3>
+            <p>Memory, wiki, and model arrive together. No service required.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo section section-dark" aria-labelledby="demo-title">
+      <div class="container demo-layout">
+        <div class="demo-copy">
+          <p class="eyebrow eyebrow-lavender">RECALL WHAT MATTERS</p>
+          <h2 id="demo-title">Your context,<br>ready on cue.</h2>
+          <p>Search by exact words, by meaning, or by memory strength. Embornal brings the right fact back without flooding the prompt.</p>
+          <p class="traits"><span></span>local-first · multilingual</p>
+        </div>
+        <div class="terminal terminal-large">
+          <div class="terminal-bar terminal-title">
+            <div aria-hidden="true"><span></span><span></span><span></span></div>
+            <small>embornal — memory</small>
+          </div>
+          <pre><code>$ embornal memory store /work/acme
+  "The build needs Rust 1.85."
+
+✓ fact stored
+
+$ embornal memory recall
+  "what does the build need?"
+
+/work/acme   1.000
+The build needs Rust 1.85.</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="shared section" aria-labelledby="shared-title">
+      <div class="container shared-layout">
+        <div class="network" aria-label="One shared memory connects multiple agent sessions">
+          <span class="connector connector-top" aria-hidden="true"></span>
+          <span class="connector connector-bottom" aria-hidden="true"></span>
+          <div class="agent agent-code"><i></i>coding agent</div>
+          <div class="agent agent-review"><i></i>review agent</div>
+          <div class="agent agent-next"><i></i>your next session</div>
+          <div class="memory-node">memory</div>
+        </div>
+        <div class="shared-copy">
+          <p class="eyebrow">ONE MEMORY, MANY AGENTS</p>
+          <h2 id="shared-title">Keep the thread<br>across every run.</h2>
+          <p>Use one local memory, or put it behind HTTP for a team of machines. Permissions keep each agent in its lane.</p>
+          <a class="text-link" href="{{ $docs }}memory/server/">Explore the server <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="install section" id="install" aria-labelledby="install-title">
+      <span class="install-spark install-spark-a" aria-hidden="true"></span>
+      <span class="install-spark install-spark-b" aria-hidden="true"></span>
+      <div class="install-inner">
+        <p class="eyebrow eyebrow-pale">ONE BINARY. YOUR AGENT’S TOOLKIT.</p>
+        <h2 id="install-title">Pack better context<br>for the next run.</h2>
+        <p>Install Embornal, teach your agent six small commands, and let useful memory compound.</p>
+        <pre class="install-command"><code>curl -LsSf https://github.com/tncardoso/embornal/releases/latest/download/embornal-installer.sh | sh</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-main">
+      <div class="footer-brand">
+        <a class="brand brand-light" href="#top"><span class="brand-mark brand-mark-purple">e</span><span>embornal</span></a>
+        <p>A toolkit for the people who build agents,<br>and for the agents themselves.</p>
+      </div>
+      <div class="footer-links">
+        <div><p>PRODUCT</p><a href="#memory">Memory</a><a href="{{ $docs }}installation/">Installation</a><a href="{{ $docs }}memory/server/">Server</a></div>
+        <div><p>PROJECT</p><a href="{{ $docs }}">Documentation</a><a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a><a href="{{ $github }}/blob/main/CHANGELOG.md">Changelog</a></div>
+      </div>
+    </div>
+    <div class="container footer-meta"><span>© {{ now.Year }} Embornal · MIT License</span><span>Small facts. Strong agents.</span></div>
+  </footer>
+{{ end }}

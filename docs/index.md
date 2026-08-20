@@ -65,4 +65,5 @@ embornal bootstrap >> AGENTS.md
 - **Install it:** [Installation](installation.md)
 - **Use the memory:** [Memory](memory/index.md), [The memory commands](memory/cli.md)
 - **Read the design:** [The memory model](memory/model.md), [Embeddings](memory/embeddings.md)
+- **Build the landing page:** [Landing page](site.md)
 - **Ship a version:** [Releasing](releasing.md)

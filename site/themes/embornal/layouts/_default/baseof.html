@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="{{ site.Language.Locale }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{{ site.Params.description }}">
+    <meta name="theme-color" content="#7041c6">
+    <meta property="og:title" content="{{ site.Title }}">
+    <meta property="og:description" content="{{ site.Params.description }}">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ "assets/banner.png" | absURL }}">
+    <title>{{ site.Title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    {{ with resources.Get "css/main.css" | minify | fingerprint }}
+      <link rel="stylesheet" href="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}">
+    {{ end }}
+  </head>
+  <body>
+    {{ block "main" . }}{{ end }}
+  </body>
+</html>
