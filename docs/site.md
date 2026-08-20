@@ -19,6 +19,13 @@ Install these tools:
 
 The uv lock file selects Python 3.13 and Zensical 0.0.51.
 
+The synchronization command uses `--no-config`. This option tells uv to
+ignore the user configuration files. A user configuration that sets
+`exclude-newer` writes an `[options]` section into the lock file. The lock
+file then fails the `--locked` check on a machine that does not have the same
+configuration, such as the continuous integration runner. The `--no-config`
+option makes each machine resolve the same lock file.
+
 ## Build the complete website
 
 Run this command from the repository root:
