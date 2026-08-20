@@ -1,7 +1,6 @@
 {{ define "main" }}
   {{ $github := site.Params.githubURL }}
   {{ $docs := site.Params.docsURL }}
-  {{ $install := site.Params.installURL }}
   <main>
     <section class="hero" aria-labelledby="hero-title">
       <div class="pixel-field" aria-hidden="true">
@@ -10,15 +9,26 @@
         <span class="pixel pixel-e"></span>
       </div>
       <nav class="nav container" aria-label="Main navigation">
-        <a class="brand" href="#top" aria-label="Embornal home">
+        <a class="brand" href="/" aria-label="Embornal home">
           <span class="brand-mark">e</span><span>embornal</span>
         </a>
         <div class="nav-links">
-          <a href="#memory">Memory</a>
+          <a href="/#memory">Memory</a>
           <a href="{{ $docs }}">Docs</a>
           <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
-          <a class="button button-small button-light" href="{{ $install }}">Get started</a>
+          <a class="button button-small button-light" href="{{ $docs }}installation/">Get started</a>
         </div>
+        <details class="mobile-nav">
+          <summary aria-label="Open navigation menu">
+            <span class="mobile-nav-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+          </summary>
+          <div class="mobile-nav-panel">
+            <a href="/#memory">Memory</a>
+            <a href="{{ $docs }}">Docs</a>
+            <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+            <a class="button button-small button-light" href="{{ $docs }}installation/">Get started</a>
+          </div>
+        </details>
       </nav>
 
       <div class="hero-content container" id="top">
@@ -120,7 +130,7 @@ The build needs Rust 1.85.</code></pre>
           <p class="eyebrow">ONE MEMORY, MANY AGENTS</p>
           <h2 id="shared-title">Keep the thread<br>across every run.</h2>
           <p>Use one local memory, or put it behind HTTP for a team of machines. Permissions keep each agent in its lane.</p>
-          <a class="text-link" href="{{ $docs }}/memory/server.md">Explore the server <span aria-hidden="true">→</span></a>
+          <a class="text-link" href="{{ $docs }}memory/server/">Explore the server <span aria-hidden="true">→</span></a>
         </div>
       </div>
     </section>
@@ -144,7 +154,7 @@ The build needs Rust 1.85.</code></pre>
         <p>A toolkit for the people who build agents,<br>and for the agents themselves.</p>
       </div>
       <div class="footer-links">
-        <div><p>PRODUCT</p><a href="#memory">Memory</a><a href="{{ $install }}">Installation</a><a href="{{ $docs }}/memory/server.md">Server</a></div>
+        <div><p>PRODUCT</p><a href="#memory">Memory</a><a href="{{ $docs }}installation/">Installation</a><a href="{{ $docs }}memory/server/">Server</a></div>
         <div><p>PROJECT</p><a href="{{ $docs }}">Documentation</a><a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a><a href="{{ $github }}/blob/main/CHANGELOG.md">Changelog</a></div>
       </div>
     </div>
