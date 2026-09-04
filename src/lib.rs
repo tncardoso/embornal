@@ -6,6 +6,8 @@
 pub mod api;
 pub mod cli;
 pub mod client;
+pub mod code;
+pub mod common;
 pub mod config;
 pub mod embedding;
 pub mod error;

@@ -59,6 +59,12 @@ nav = [
     { "The memory model" = "memory/model.md" },
     { "The server" = "memory/server.md" },
   ] },
+  { "Code" = [
+    { "Code" = "code/index.md" },
+    { "The code commands" = "code/cli.md" },
+    { "The harness" = "code/harness.md" },
+    { "The code model" = "code/model.md" },
+  ] },
 ]
 
 # With the "extra_css" option you can add your own CSS styling to customize

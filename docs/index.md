@@ -17,6 +17,7 @@ time of a search, and no key of another company.
 | Tool | Command | Job |
 | ---- | ------- | --- |
 | [Memory](memory/index.md) | `embornal memory` | A wiki of small facts that an agent writes one at a time and finds again by word, by sense, or by how strong a fact still is. |
+| [Code](code/index.md) | `embornal code` | A map of a repository: a tree of directories, files and definitions, with a summary of each that an outside agent writes. |
 
 ## Install
 
@@ -64,6 +65,7 @@ embornal bootstrap >> AGENTS.md
 
 - **Install it:** [Installation](installation.md)
 - **Use the memory:** [Memory](memory/index.md), [The memory commands](memory/cli.md)
-- **Read the design:** [The memory model](memory/model.md), [Embeddings](memory/embeddings.md)
+- **Use the code index:** [Code](code/index.md), [The code commands](code/cli.md), [The harness](code/harness.md)
+- **Read the design:** [The memory model](memory/model.md), [Embeddings](memory/embeddings.md), [The code model](code/model.md)
 - **Build the landing page:** [Landing page](site.md)
 - **Ship a version:** [Releasing](releasing.md)

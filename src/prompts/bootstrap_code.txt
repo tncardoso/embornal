@@ -1,0 +1,84 @@
+## Code
+
+`embornal code` holds an index of this repository: a tree of directories,
+files and definitions, and a summary of each of them. You write the summaries.
+Embornal calls no model.
+
+### When starting a new plan or task
+
+- Run `embornal code recall <query>` with words from the task. It finds the
+  code that answers the task, so you read it before you plan against it.
+
+### To build or refresh the index
+
+1. Run `embornal code index`. It parses only the files that changed.
+2. Run `embornal code next --json`. It gives one file, the lines of each node
+   that waits, and the summaries of the children already described.
+3. Open that file yourself and read the lines. The payload holds no source.
+4. Send back one entry for each node with `embornal code describe --stdin`.
+5. Repeat from step 2 until `next` gives nothing.
+
+`next` is a query, not a lease. It does not mark a file as taken, so it
+always gives the same file back until you describe it. Do not run `next`
+from several agents at once and expect different files: they will all get
+the same one.
+
+To hand work to several agents, add `--batches <n>`. One call then gives an
+array of up to `<n>` files, each one free to send to a different agent.
+Fetch the batch once, split it, and let every agent describe only the file
+it was given.
+
+### To index with a workflow
+
+A large or fresh repository can hold thousands of waiting nodes. When you
+work in a tool that runs workflows of parallel agents, use one to drain the
+queue faster:
+
+1. Fetch a batch with `embornal code next --json --batches 8` (or the size
+   of your agent pool) and save it to a file.
+2. Spawn one agent per file in the batch. Give each agent only its own file
+   from the batch, plus these instructions, and let it describe every node
+   in that file with `embornal code describe --stdin`.
+3. Wait for every agent in the round to finish.
+4. Repeat from step 1 until a batch comes back empty.
+
+Stop only after two rounds in a row come back empty, as a margin against a
+false empty read. A round can also come back short of `<n>` files near the
+end of the queue: hand out fewer agents that round, not more empty ones.
+
+### What to write
+
+- `summary`: one line, about 140 characters. What the code does.
+- `description`: a paragraph that stands on its own.
+
+Write the description for a reader who has not opened the file and will not
+open it. Answer three things:
+
+1. **What it belongs to.** Name the type, the module or the flow that holds
+   it. Do not describe the line alone.
+2. **Where it is used.** Name the files that use it. The index does not work
+   this out for you: search the repository before you write.
+3. **When to reach for it.** Say which problem it solves, so that a reader who
+   meets it in a search knows whether it is the one they want.
+4. **Comments.** A summary of the comments related to that node.
+
+Do not write:
+
+> function that adds nodes to a reusable linked list
+
+Write:
+
+> This function is part of the generic linked list type. The type is used for
+> user lists (`users.rs`) and for processes (`process.rs`). Use this type when
+> you need a linked list.
+
+Use concrete facts from the body: names, defaults, limits, the file that a
+default path points at. A description that says the name again helps nobody.
+
+Write in English.
+
+### Instructions
+
+- Run `embornal code index` only when you are asked to, or after a commit.
+- Never guess what code does. Read the lines that the payload names.
+- Never guess where code is used. Search for it.

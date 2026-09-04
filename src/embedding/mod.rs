@@ -31,6 +31,9 @@ pub enum Input<'a> {
         path: &'a WikiPath,
         content: &'a str,
     },
+    /// A text that carries its own title, such as the summary of a function
+    /// under its qualified name. The code index writes these.
+    Titled { title: &'a str, content: &'a str },
     /// The words that somebody searches for.
     Query(&'a str),
 }
@@ -40,6 +43,7 @@ impl Input<'_> {
     pub fn prompt(&self) -> String {
         match self {
             Self::Document { path, content } => format!("title: {path} | text: {content}"),
+            Self::Titled { title, content } => format!("title: {title} | text: {content}"),
             Self::Query(text) => format!("task: search result | query: {text}"),
         }
     }

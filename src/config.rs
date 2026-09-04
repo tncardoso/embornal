@@ -65,6 +65,18 @@ pub const CONFIG_FILE: &str = "config.yaml";
 /// The name of the database file.
 pub const DATABASE_FILE: &str = "memory.db";
 
+/// The name of the file that holds the code index.
+///
+/// One file holds every repository. A collection inside it says which
+/// repository a node belongs to.
+pub const CODE_DATABASE_FILE: &str = "code.db";
+
+/// How large a file may be before the code index passes over it.
+///
+/// A file above this is almost always generated or vendored, and parsing it
+/// would fill the index with nodes that nobody asks about.
+pub const DEFAULT_MAX_FILE_BYTES: u64 = 512 * 1024;
+
 /// The files that SQLite keeps next to the database while it runs.
 const DATABASE_SIDE_FILES: [&str; 2] = ["memory.db-wal", "memory.db-shm"];
 
@@ -128,6 +140,10 @@ impl Paths {
 
     pub fn database_file(&self) -> PathBuf {
         self.data.join(DATABASE_FILE)
+    }
+
+    pub fn code_database_file(&self) -> PathBuf {
+        self.data.join(CODE_DATABASE_FILE)
     }
 
     /// Where the weights of the embedding model stay.
@@ -231,6 +247,8 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
 
     pub recall: RecallConfig,
+
+    pub code: CodeConfig,
 }
 
 impl Config {
@@ -255,6 +273,57 @@ impl Config {
         self.database
             .clone()
             .unwrap_or_else(|| paths.database_file())
+    }
+
+    /// Returns the file that holds the code index.
+    pub fn code_database_file(&self, paths: &Paths) -> PathBuf {
+        self.code
+            .database
+            .clone()
+            .unwrap_or_else(|| paths.code_database_file())
+    }
+}
+
+/// How the code index reads a repository and answers a question.
+///
+/// The recall of the code index has no term for the age of an entry, and that
+/// is the one place where it parts from [`RecallConfig`]. A fact of the memory
+/// loses strength with time. A summary of a function does not: it is right
+/// until the code changes, and a changed hash says that at once.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CodeConfig {
+    /// The file that holds the index. The default is `code.db` in the data
+    /// directory.
+    pub database: Option<PathBuf>,
+    /// How large a file may be before the walk passes over it.
+    pub max_file_bytes: u64,
+    /// How many nodes a recall gives back.
+    pub limit: usize,
+    /// The weight of the keyword match.
+    pub keyword_weight: f64,
+    /// Which share of the nodes a word may hold before it says nothing.
+    pub keyword_ceiling: f64,
+    /// The weight of the vector match.
+    pub vector_weight: f64,
+    /// How near a summary must be before the vector index gives it.
+    pub vector_floor: f64,
+    /// Which share of the nearest summary the others must reach.
+    pub vector_share: f64,
+}
+
+impl Default for CodeConfig {
+    fn default() -> Self {
+        Self {
+            database: None,
+            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+            limit: 20,
+            keyword_weight: 1.0,
+            keyword_ceiling: 0.5,
+            vector_weight: 1.0,
+            vector_floor: 0.15,
+            vector_share: 0.5,
+        }
     }
 }
 

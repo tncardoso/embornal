@@ -4,6 +4,7 @@
 //! one method here, so the command line only reads arguments and prints
 //! results.
 
+use crate::common::score::{self, rescale, similarity};
 use crate::config::{Config, Paths};
 use crate::embedding::{self, Embedder, Input, Provider};
 use crate::error::{Error, Result};
@@ -579,7 +580,7 @@ impl Memory {
             .db
             .conn()
             .query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))?;
-        let ceiling = (facts as f64 * self.config.recall.keyword_ceiling).floor() as i64;
+        let ceiling = score::ceiling(facts, self.config.recall.keyword_ceiling);
 
         // One lookup for each word of the question. A question holds few
         // words, and each lookup reads the index alone.
@@ -722,12 +723,7 @@ impl Memory {
         // Without a cut, a question that the memory cannot answer would still
         // come back full.
         let weights = &self.config.recall;
-        let best = hits
-            .iter()
-            .map(|(_, score)| *score)
-            .fold(f64::MIN, f64::max);
-        let cut = weights.vector_floor.max(best * weights.vector_share);
-        hits.retain(|(_, score)| *score >= cut);
+        score::cut(&mut hits, weights.vector_floor, weights.vector_share);
         Ok(hits)
     }
 
@@ -1024,48 +1020,7 @@ fn prune_leaves(node: &mut TreeNode) {
 /// It is more than the caller wants, because the mix with the other index and
 /// with the strength changes the order.
 fn candidate_count(options: &RecallOptions) -> i64 {
-    (options.limit * 4).max(50) as i64
-}
-
-/// Turns the distance of the vector index into a score.
-///
-/// The vectors have a length of one, and the index measures the straight
-/// distance `d` between two of them. For such vectors the angle gives
-/// `cos = 1 - d² / 2`, which is 1.0 for two texts that say the same, 0.0 for
-/// two texts with nothing in common, and -1.0 for two texts that say the
-/// opposite.
-///
-/// This is an absolute scale, so it needs no other hit to make sense of it.
-/// The keyword index has no such scale, which is why [`rescale`] exists for
-/// that one alone.
-fn similarity(distance: f64) -> f64 {
-    1.0 - (distance * distance) / 2.0
-}
-
-/// Turns the rank of the keyword index into a number from 0.0 to 1.0.
-///
-/// bm25 gives a negative number, and the best match is the smallest. The
-/// number says nothing on its own: it depends on the words of the question
-/// and on the whole memory. This therefore maps the best hit of the list to
-/// 1.0 and the worst to 0.0.
-///
-/// A list of one hit, or a list where every hit ties, scores 1.0 throughout:
-/// with no spread there is nothing to tell the hits apart.
-fn rescale(hits: Vec<(Fact, f64)>) -> Vec<(Fact, f64)> {
-    let best = hits.iter().map(|(_, rank)| *rank).fold(f64::MAX, f64::min);
-    let worst = hits.iter().map(|(_, rank)| *rank).fold(f64::MIN, f64::max);
-    let spread = (worst - best).abs();
-
-    hits.into_iter()
-        .map(|(fact, rank)| {
-            let score = if spread < f64::EPSILON {
-                1.0
-            } else {
-                (worst - rank) / spread
-            };
-            (fact, score)
-        })
-        .collect()
+    score::candidate_count(options.limit)
 }
 
 /// Writes the vector of one fact, in the table and in the vector index.

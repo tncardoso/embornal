@@ -7,6 +7,38 @@ The format is based on [Keep a Changelog][kac], and this project uses
 
 ## [Unreleased]
 
+### Added
+
+- A second tool, `embornal code`. It holds a map of a repository: a tree of
+  directories, files and definitions that tree-sitter finds, with a short
+  summary and a longer description of each of them. Rust, Python, Go,
+  JavaScript, TypeScript and TSX.
+- Embornal writes no summary. `embornal code next` says which nodes have none
+  and `embornal code describe` takes back what an outside agent wrote, so no
+  model, key or provider goes in the binary. `embornal code bootstrap` writes
+  the instructions of that loop. The instructions ask for a description that
+  stands on its own: what a node belongs to, which files use it, and when to
+  reach for it.
+- A pass after a commit costs almost nothing. A file whose bytes hash to what
+  the index holds is not read again, and nothing below it moves. A directory
+  hashes the hashes of its children, which is the one place where the tree is
+  a Merkle tree.
+- A summary belongs to the code and not to the checkout. It is filed under the
+  qualified name and the content hash together, in a pool that names no
+  collection, so a second index over the same code starts with nothing to do
+  and no row is copied to make that true.
+- `embornal code recall` searches the summaries with FTS5 and with the vector
+  index, and `embornal code tree` and `embornal code cat` read the index.
+- `embornal memory bootstrap` and `embornal code bootstrap` write the
+  instructions of one tool. `embornal bootstrap` writes all of them.
+
+### Changed
+
+- What the memory and the code index share now lives in `src/common`: how a
+  SQLite file opens, how a schema walks forward, and the arithmetic that puts
+  a keyword index and a vector index on one scale. The behaviour of the memory
+  is unchanged.
+
 ## [0.2.0] - 2026-08-19
 
 ### Added

@@ -5,6 +5,7 @@
 //! the memory itself.
 
 use crate::cli::table::{Align, Table};
+use crate::cli::tree::{Branch, print_tree};
 use crate::cli::write_error;
 use crate::error::{Error, Result};
 use crate::memory::api::{
@@ -38,6 +39,11 @@ pub enum MemoryCommand {
     Reindex(ReindexArgs),
     /// Starts the wiki, which shows the memory in a browser.
     Wiki(WikiArgs),
+    /// Writes the instructions that teach an agent to use the memory.
+    ///
+    /// The text touches no file, so `cli::run` answers it before it opens
+    /// anything. `run` below therefore never meets it.
+    Bootstrap(crate::cli::bootstrap::BootstrapArgs),
 }
 
 #[derive(Debug, Args)]
@@ -131,6 +137,11 @@ pub struct WikiArgs {
 /// Runs one memory command.
 pub fn run(command: MemoryCommand, mut memory: Backend, out: &mut impl Write) -> Result<()> {
     match command {
+        // `cli::run` answers this one before it opens the memory, because the
+        // text must arrive even where no memory exists yet.
+        MemoryCommand::Bootstrap(_) => {
+            crate::cli::bootstrap::section(crate::cli::bootstrap::MEMORY, out)
+        }
         MemoryCommand::Store(args) => store(args, &mut memory, out),
         MemoryCommand::Ls(args) => ls(args, &mut memory, out),
         MemoryCommand::Tree(args) => tree(args, &mut memory, out),
@@ -302,36 +313,27 @@ pub fn print_names(listing: &Listing, out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-/// Prints a tree.
+/// Says how a path of the memory is drawn in a tree.
 ///
 /// The top holds its whole path, and each path below it shows its own name
 /// only, because the lines already say where it sits. A name that carries a
 /// `*` holds facts of its own.
-pub fn print_tree(tree: &TreeNode, out: &mut impl Write) -> Result<()> {
-    writeln!(out, "{}{}", tree.path, mark(tree)).map_err(write_error)?;
-    print_branches(tree, "", out)
-}
-
-/// Writes the paths below one path.
-fn print_branches(node: &TreeNode, prefix: &str, out: &mut impl Write) -> Result<()> {
-    let last = node.children.len().saturating_sub(1);
-    for (index, child) in node.children.iter().enumerate() {
-        let (elbow, next) = if index == last {
-            ("└── ", "    ")
-        } else {
-            ("├── ", "│   ")
-        };
-
-        let name = child.path.segment().unwrap_or("/");
-        writeln!(out, "{prefix}{elbow}{name}{}", mark(child)).map_err(write_error)?;
-        print_branches(child, &format!("{prefix}{next}"), out)?;
+impl Branch for TreeNode {
+    fn root_label(&self) -> String {
+        self.path.to_string()
     }
-    Ok(())
-}
 
-/// Returns the mark of a path that holds facts of its own.
-fn mark(node: &TreeNode) -> &'static str {
-    if node.fact_count > 0 { "*" } else { "" }
+    fn label(&self) -> String {
+        self.path.segment().unwrap_or("/").to_string()
+    }
+
+    fn mark(&self) -> &'static str {
+        if self.fact_count > 0 { "*" } else { "" }
+    }
+
+    fn children(&self) -> &[Self] {
+        &self.children
+    }
 }
 
 /// Prints the document of one path.

@@ -82,6 +82,16 @@ pub enum Error {
     #[error("path not found: {0}")]
     PathNotFound(String),
 
+    #[error("there is no node {0} in this collection")]
+    NoSuchNode(String),
+
+    #[error("there is no collection {0}: run `embornal code index` first")]
+    NoSuchCollection(String),
+
+    /// A file that the walk reached and that no grammar of this build reads.
+    #[error("no grammar for '{0}'")]
+    UnsupportedLanguage(String),
+
     #[error("access control error: {0}")]
     Casbin(#[from] casbin::Error),
 

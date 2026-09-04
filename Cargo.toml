@@ -41,6 +41,7 @@ clap = { version = "4.6.4", features = ["derive"] }
 dirs = "6.0.0"
 getrandom = "0.3.4"
 hf-hub = { version = "1", features = ["blocking"], optional = true }
+ignore = "0.4"
 # No OpenMP: it makes the binary need libgomp at run time, which a released
 # binary must not do. `static-stdcxx` puts libstdc++ in the binary, for the
 # same reason. Both are Linux-only in the build script of llama-cpp-sys-2.
@@ -53,11 +54,18 @@ sha2 = "0.11.0"
 sqlite-vec = "0.1.9"
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tree-sitter = "0.27"
+tree-sitter-go = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
 ulid = { version = "3.0.0", features = ["serde"] }
 ureq = { version = "3.4.0", default-features = false, features = ["rustls", "json"] }
 
 [dev-dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = "1.0.151"
 
 # The profile that `dist` builds a release with.
 [profile.dist]
