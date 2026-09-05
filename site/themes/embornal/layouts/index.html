@@ -14,6 +14,7 @@
         </a>
         <div class="nav-links">
           <a href="/#memory">Memory</a>
+          <a href="/#code">Code</a>
           <a href="{{ $docs }}">Docs</a>
           <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
           <a class="button button-small button-light" href="{{ $docs }}installation/">Get started</a>
@@ -24,6 +25,7 @@
           </summary>
           <div class="mobile-nav-panel">
             <a href="/#memory">Memory</a>
+            <a href="/#code">Code</a>
             <a href="{{ $docs }}">Docs</a>
             <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
             <a class="button button-small button-light" href="{{ $docs }}installation/">Get started</a>
@@ -33,9 +35,8 @@
 
       <div class="hero-content container" id="top">
         <div class="hero-copy">
-          <p class="eyebrow eyebrow-dark">CONTEXTUAL MEMORY FOR AGENTS</p>
-          <h1 id="hero-title">Give your agents a memory.</h1>
-          <p class="hero-lede">Embornal keeps small facts in a wiki-like tree. Every memory stays contextualized by its path, so agents recall the right fact for the task.</p>
+          <h1 id="hero-title">Give your agents<br>a memory and a map.</h1>
+          <p class="hero-lede">Embornal keeps two things an agent forgets: the facts it learned, and the shape of the code it works in. Both stay small, stay searchable, and stay out of the way until they're needed.</p>
           <div class="hero-context" aria-label="Example contextual memory path">
             <code>/projects/embornal</code><span>facts live in a wiki path</span>
           </div>
@@ -54,7 +55,10 @@
               <span></span><span></span><span></span>
             </div>
             <pre><code>$ embornal memory recall "what matters"
-✓ 3 facts found · instantly</code></pre>
+✓ 3 facts found · instantly
+
+$ embornal code recall "where auth lives"
+✓ 2 matches · instantly</code></pre>
           </div>
         </div>
       </div>
@@ -116,6 +120,61 @@ The build needs Rust 1.85.</code></pre>
       </div>
     </section>
 
+    <section class="why section" id="code" aria-labelledby="why-code-title">
+      <div class="container">
+        <div class="section-heading split-heading">
+          <div>
+            <p class="eyebrow">CODE, WITHOUT THE GREP</p>
+            <h2 id="why-code-title">Agents grep.<br>Embornal already knows.</h2>
+          </div>
+          <p>A repo has no map until someone reads it. Embornal builds the tree once, in tree-sitter, and keeps it waiting for the next question.</p>
+        </div>
+        <div class="reasons">
+          <article>
+            <p class="reason-number">01 / A TREE FROM THE SPANS</p>
+            <h3>Structure, not guesswork.</h3>
+            <p>tree-sitter spans nest into a tree of directories, files, and definitions. Every grammar agrees, so no language needs a rule of its own.</p>
+          </article>
+          <article>
+            <p class="reason-number">02 / YOU WRITE THE SUMMARY</p>
+            <h3>Bring your own model.</h3>
+            <p>Embornal parses and asks; an agent answers. No model, key, or provider ships in the binary.</p>
+          </article>
+          <article>
+            <p class="reason-number">03 / ALMOST FREE TO REFRESH</p>
+            <h3>Re-index what changed, and nothing else.</h3>
+            <p>Content hashes skip unchanged files, and summaries pool by hash, shared across every branch.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo section section-dark" aria-labelledby="demo-code-title">
+      <div class="container demo-layout">
+        <div class="demo-copy">
+          <p class="eyebrow eyebrow-lavender">A MAP, NOT A GUESS</p>
+          <h2 id="demo-code-title">Ask the repo<br>a real question.</h2>
+          <p>Search the index by word, by meaning, or walk the tree yourself. Embornal answers with the function, the file, and the summary — not a page of grep matches.</p>
+          <p class="traits"><span></span>tree-sitter · 6 languages</p>
+          <a class="text-link" href="{{ $docs }}code/">See the code docs <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="terminal terminal-large">
+          <div class="terminal-bar terminal-title">
+            <div aria-hidden="true"><span></span><span></span><span></span></div>
+            <small>embornal — code</small>
+          </div>
+          <pre><code>$ embornal code index
+collection ~/projects/thing: 47 files, 1422 nodes
+
+$ embornal code recall
+  "where the token is checked"
+
+Score   Kind       Name
+1.842   function   token.rs::Token::open</code></pre>
+        </div>
+      </div>
+    </section>
+
     <section class="shared section" aria-labelledby="shared-title">
       <div class="container shared-layout">
         <div class="network" aria-label="One shared memory connects multiple agent sessions">
@@ -139,9 +198,9 @@ The build needs Rust 1.85.</code></pre>
       <span class="install-spark install-spark-a" aria-hidden="true"></span>
       <span class="install-spark install-spark-b" aria-hidden="true"></span>
       <div class="install-inner">
-        <p class="eyebrow eyebrow-pale">ONE BINARY. YOUR AGENT’S TOOLKIT.</p>
+        <p class="eyebrow eyebrow-pale">ONE BINARY. TWO TOOLS.</p>
         <h2 id="install-title">Pack better context<br>for the next run.</h2>
-        <p>Install Embornal, teach your agent six small commands, and let useful memory compound.</p>
+        <p>Install Embornal once, then teach your agent both loops: a memory that compounds, and a code map that never goes stale.</p>
         <pre class="install-command"><code>curl -LsSf https://github.com/tncardoso/embornal/releases/latest/download/embornal-installer.sh | sh</code></pre>
       </div>
     </section>
@@ -154,10 +213,10 @@ The build needs Rust 1.85.</code></pre>
         <p>A toolkit for the people who build agents,<br>and for the agents themselves.</p>
       </div>
       <div class="footer-links">
-        <div><p>PRODUCT</p><a href="#memory">Memory</a><a href="{{ $docs }}installation/">Installation</a><a href="{{ $docs }}memory/server/">Server</a></div>
+        <div><p>PRODUCT</p><a href="#memory">Memory</a><a href="#code">Code</a><a href="{{ $docs }}installation/">Installation</a><a href="{{ $docs }}memory/server/">Server</a></div>
         <div><p>PROJECT</p><a href="{{ $docs }}">Documentation</a><a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a><a href="{{ $github }}/blob/main/CHANGELOG.md">Changelog</a></div>
       </div>
     </div>
-    <div class="container footer-meta"><span>© {{ now.Year }} Embornal · MIT License</span><span>Small facts. Strong agents.</span></div>
+    <div class="container footer-meta"><span>© {{ now.Year }} Embornal · MIT License</span><span>Small facts. Sharp maps. Strong agents.</span></div>
   </footer>
 {{ end }}

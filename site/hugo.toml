@@ -5,7 +5,7 @@ theme = "embornal"
 disableKinds = ["taxonomy", "term", "RSS"]
 
 [params]
-description = "A toolkit that helps agents keep, find, and share the facts that matter."
+description = "A toolkit that helps agents keep, find, and share facts — and hold a map of the code they work in."
 githubURL = "https://github.com/tncardoso/embornal"
 docsURL = "/docs/"
 

@@ -52,7 +52,7 @@ pre { margin: 0; }
 .mobile-nav-panel > a:not(.button) { padding: 10px 8px; border-radius: 7px; font-size: 16px; font-weight: 600; }
 .mobile-nav-panel > a:not(.button):hover { color: var(--ink); background: var(--lavender); }
 .mobile-nav-panel .button { margin-top: 6px; }
-.hero-content { position: relative; z-index: 2; display: flex; min-height: 808px; padding-top: 96px; align-items: center; justify-content: space-between; }
+.hero-content { position: relative; z-index: 2; display: flex; min-height: 808px; padding-top: 8px; align-items: center; justify-content: space-between; }
 .hero-copy { width: 570px; }
 .hero h1 { margin: 24px 0 0; max-width: 570px; font-size: clamp(60px, 5.42vw, 78px); line-height: .975; letter-spacing: -.055em; }
 .hero-lede { max-width: 530px; margin: 24px 0 0; color: #eee9fa; font-size: 20px; line-height: 30px; }
@@ -146,7 +146,7 @@ pre { margin: 0; }
 
 @media (max-width: 1050px) {
   .hero { min-height: auto; padding-bottom: 90px; }
-  .hero-content { flex-direction: column; padding-top: 70px; gap: 80px; }
+  .hero-content { flex-direction: column; padding-top: 8px; gap: 80px; }
   .hero-copy { width: min(100%, 680px); text-align: center; }
   .hero-copy .eyebrow { align-self: center; }
   .hero h1, .hero-lede { margin-inline: auto; }
@@ -164,11 +164,11 @@ pre { margin: 0; }
   .nav { height: 78px; }
   .nav-links { display: none; }
   .mobile-nav { display: block; }
-  .hero-content { padding-top: 50px; }
+  .hero-content { padding-top: 6px; }
   .hero h1 { font-size: clamp(50px, 14vw, 72px); }
-  .hero-visual { width: 100%; height: 430px; }
+  .hero-visual { width: 100%; height: 470px; }
   .banner-card { width: min(92%, 600px); }
-  .terminal-small { left: 12%; top: 275px; width: 76%; }
+  .terminal-small { left: 12%; top: 255px; width: 76%; }
   .split-heading, .demo-layout, .shared-layout { flex-direction: column; align-items: flex-start; }
   .split-heading > div, .split-heading > p, .demo-copy, .shared-copy, .terminal-large { width: 100%; }
   .split-heading > p { margin-top: 28px; }
@@ -188,9 +188,9 @@ pre { margin: 0; }
   .nav .button { padding: 10px 15px; font-size: 14px; }
   .hero-actions { flex-direction: column; align-items: stretch; }
   .hero-context { flex-direction: column; gap: 7px; }
-  .hero-visual { height: 350px; }
+  .hero-visual { height: 380px; }
   .banner-card { padding-block: 24px; border-width: 6px; box-shadow: 12px 12px 0 var(--ink); }
-  .terminal-small { left: 6%; top: 220px; width: 88%; }
+  .terminal-small { left: 6%; top: 200px; width: 88%; }
   .terminal-small pre { padding: 14px; font-size: 11px; line-height: 20px; }
   .section-heading h2, .demo h2, .shared h2 { font-size: 42px; }
   .terminal-large pre { font-size: 11px; line-height: 22px; }
