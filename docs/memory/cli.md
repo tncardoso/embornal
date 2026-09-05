@@ -1,7 +1,7 @@
 # The memory commands
 
-All work on the memory goes through `embornal memory`. One command sits
-outside that group:
+All work on the memory goes through `embornal memory`. Two commands sit
+outside that group: `embornal bootstrap` and `embornal dashboard`.
 
 ```
 embornal bootstrap
@@ -15,6 +15,9 @@ $ embornal bootstrap >> ~/.claude/AGENTS.md
 ```
 
 The command touches no file of its own, so it answers before a memory exists.
+
+`embornal dashboard` is the other command outside the group. It starts the
+wiki, and is documented in [its own section below](#dashboard).
 
 A global flag names who asks:
 
@@ -234,18 +237,24 @@ way to fetch them before they are needed.
 
 A fact that the subject may not read stays where it is.
 
-## wiki
+## dashboard
 
 ```
-embornal memory wiki
+embornal dashboard
 ```
 
 Starts the wiki at `http://localhost:1337`. Each path is a page that holds its
 facts and the paths below it. A `[[/link]]` becomes a link to that page.
 
+A "Code" tab sits next to the wiki. It reads the code index of one
+repository, the same way `embornal code` does. See
+[The code commands](../code/cli.md#embornal-dashboard).
+
 | Flag | Effect |
 | ---- | ------ |
 | `--port N` | Listens on another port. |
+| `--path PATH` | Reads the code index of the repository at this path, instead of where you are. |
+| `--collection NAME` | Reads this index instead of the one that `--path` names by default. |
 
 Each page shows the metadata of its path below the trail: the number of facts
 that the path holds, the total number of facts in that path and all paths
@@ -254,8 +263,7 @@ The signal is the mean strength of the facts of the path, from 1.000 for facts
 that somebody read now to 0.000 for facts that the memory almost lost. A path
 with no fact shows no signal.
 
-Each path in the list below the facts shows its direct fact count and its
-total fact count, including all paths below it.
+The facts of a path show newest first.
 
 Below its text, each fact carries its own signal, the day on which somebody
 wrote it, and its tags:
@@ -269,6 +277,13 @@ memory almost lost, so each fact states its own strength. The day is in UTC,
 which is how the memory holds time. The tags are the ones that decide who
 reads the fact, which include the tags that the fact takes from the paths
 above it. A fact with no tag stops at the day.
+
+A sidebar sits next to the facts. It names each path one step below the
+current path, with its direct fact count and its total fact count including
+all paths below it. Below that, a card shows the signal of the current path
+again, in large text, with the number of facts behind it. A path with no
+child below it, or with no fact of its own, does not show that part of the
+sidebar.
 
 On the search page, the signal is the strength that the fact had when the
 search found it, before the recall lifts it.

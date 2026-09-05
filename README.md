@@ -92,10 +92,11 @@ $ embornal memory tree /work
 /work
 └── acme*
 
-$ embornal memory wiki
+$ embornal dashboard
 ```
 
-`wiki` starts a wiki on `http://localhost:1337`, where each path is a page.
+`embornal dashboard` starts a wiki on `http://localhost:1337`, where each
+path is a page.
 
 To share one memory between machines, put it on a server and point the others
 at it:

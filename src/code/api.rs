@@ -112,6 +112,59 @@ fn grow(
     }
 }
 
+/// Lists the definitions of one file: everything below it that is not itself
+/// a file, a directory or the repository.
+///
+/// The list is flat, in the order the file defines them, so a method inside
+/// an `impl` sits next to the top-level functions of the same file. The
+/// dashboard's "Definitions" panel is what calls this.
+pub fn definitions(db: &Database, collection: &str, rel_path: &str) -> Result<Vec<Described>> {
+    let collection_id = queue::collection_id(db, collection)?;
+    let mut stmt = db.conn().prepare(
+        "SELECT n.qualified_name, n.kind, n.rel_path, n.start_line, n.end_line,
+                s.summary, s.description, s.written_at, s.author
+         FROM nodes n
+         LEFT JOIN summaries s ON s.pool_key = n.pool_key
+         WHERE n.collection_id = ? AND n.rel_path = ?
+               AND n.kind NOT IN ('repo', 'dir', 'file')
+         ORDER BY n.start_line",
+    )?;
+    let rows = stmt.query_map(params![collection_id, rel_path], |row| {
+        Ok(Described {
+            qualified_name: row.get(0)?,
+            kind: row.get(1)?,
+            rel_path: row.get(2)?,
+            start_line: row.get(3)?,
+            end_line: row.get(4)?,
+            summary: row.get(5)?,
+            description: row.get(6)?,
+            written_at: row.get(7)?,
+            author: row.get(8)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Counts the nodes under one node's subtree, and how many of them carry a
+/// summary.
+///
+/// A file's subtree is itself and its definitions. A directory's subtree adds
+/// every file and definition below it. The root's subtree, named by the empty
+/// path, is the whole collection.
+pub fn subtree_status(db: &Database, collection: &str, rel_path: &str) -> Result<(u64, u64)> {
+    let collection_id = queue::collection_id(db, collection)?;
+    let (nodes, described): (i64, i64) = db.conn().query_row(
+        "SELECT COUNT(*), COUNT(s.id)
+         FROM nodes n
+         LEFT JOIN summaries s ON s.pool_key = n.pool_key
+         WHERE n.collection_id = ?1
+               AND (?2 = '' OR n.rel_path = ?2 OR n.rel_path LIKE ?2 || '/%')",
+        params![collection_id, rel_path],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok((nodes as u64, described as u64))
+}
+
 /// Whether `path` sits directly below `parent`.
 fn is_child(parent: &str, path: &str) -> bool {
     if path == parent {
@@ -856,5 +909,79 @@ mod tests {
 
         let error = index.cat("test", "src/a.rs::absent").unwrap_err();
         assert!(matches!(error, Error::NoSuchNode(_)), "{error}");
+    }
+
+    #[test]
+    fn definitions_lists_everything_a_file_defines_by_line() {
+        let repo = Repo::new("definitions");
+        repo.write(
+            "src/a.rs",
+            "struct Thing;\n\nimpl Thing {\n    fn go() {}\n}\n\nfn free() {}\n",
+        );
+        let index = open(&repo);
+
+        let found = definitions(index.database(), "test", "src/a.rs").unwrap();
+        let names: Vec<&str> = found.iter().map(|node| node.qualified_name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "src/a.rs::Thing",
+                "src/a.rs::Thing#2",
+                "src/a.rs::Thing#2::go",
+                "src/a.rs::free"
+            ]
+        );
+
+        // The file itself, and the collection root, hold no definitions.
+        assert!(definitions(index.database(), "test", "src/b.rs").unwrap().is_empty());
+    }
+
+    #[test]
+    fn definitions_carries_what_was_written_about_each_one() {
+        let repo = Repo::new("definitions-described");
+        repo.write("src/a.rs", "fn go() {}\n");
+        let mut index = open(&repo);
+        say(&mut index, "src/a.rs::go", "Goes.", "It goes.");
+
+        let found = definitions(index.database(), "test", "src/a.rs").unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].summary.as_deref(), Some("Goes."));
+    }
+
+    #[test]
+    fn subtree_status_counts_a_file_and_its_definitions() {
+        let repo = Repo::new("subtree-file");
+        repo.write("src/a.rs", "fn one() {}\nfn two() {}\n");
+        let mut index = open(&repo);
+        say(&mut index, "src/a.rs::one", "One.", "It is one.");
+
+        // The file itself and its two functions: three nodes, one described.
+        assert_eq!(
+            subtree_status(index.database(), "test", "src/a.rs").unwrap(),
+            (3, 1)
+        );
+    }
+
+    #[test]
+    fn subtree_status_of_a_directory_adds_the_files_below_it() {
+        let repo = Repo::new("subtree-dir");
+        repo.write("src/a.rs", "fn one() {}\n");
+        repo.write("src/sub/b.rs", "fn two() {}\n");
+        let index = open(&repo);
+
+        let (under_src, _) = subtree_status(index.database(), "test", "src").unwrap();
+        let (under_root, _) = subtree_status(index.database(), "test", "").unwrap();
+        // "src" holds itself, both files, "sub", and both functions.
+        assert_eq!(under_src, 6);
+        // The root holds "src" as well, so it counts one more than "src" does.
+        assert_eq!(under_root, under_src + 1);
+    }
+
+    #[test]
+    fn subtree_status_of_an_unindexed_collection_says_so() {
+        let repo = Repo::new("subtree-missing");
+        let index = open(&repo);
+        let error = subtree_status(index.database(), "absent", "").unwrap_err();
+        assert!(matches!(error, Error::NoSuchCollection(_)), "{error}");
     }
 }

@@ -49,10 +49,11 @@ $ embornal memory recall "which rust version"
 $ embornal memory ls /work
 $ embornal memory tree /projects
 $ embornal memory cat /memory
-$ embornal memory wiki
+$ embornal dashboard
 ```
 
-`wiki` starts the wiki on `http://localhost:1337`, where each path is a page.
+`embornal dashboard` starts the wiki on `http://localhost:1337`, where each
+path is a page.
 
 Each command and each flag is in [The memory commands](cli.md).
 

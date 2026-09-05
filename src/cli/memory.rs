@@ -20,9 +20,6 @@ use crate::memory::tag::{Tag, TagSet};
 use clap::{Args, Subcommand};
 use std::io::Write;
 
-/// The port that `wiki` listens on.
-pub const WIKI_PORT: u16 = 1337;
-
 #[derive(Debug, Subcommand)]
 pub enum MemoryCommand {
     /// Writes one fact to a path.
@@ -37,8 +34,6 @@ pub enum MemoryCommand {
     Recall(RecallArgs),
     /// Gives a vector to each fact that has none.
     Reindex(ReindexArgs),
-    /// Starts the wiki, which shows the memory in a browser.
-    Wiki(WikiArgs),
     /// Writes the instructions that teach an agent to use the memory.
     ///
     /// The text touches no file, so `cli::run` answers it before it opens
@@ -127,13 +122,6 @@ pub struct ReindexArgs {
     pub all: bool,
 }
 
-#[derive(Debug, Args)]
-pub struct WikiArgs {
-    /// The port to listen on.
-    #[arg(long, default_value_t = WIKI_PORT)]
-    pub port: u16,
-}
-
 /// Runs one memory command.
 pub fn run(command: MemoryCommand, mut memory: Backend, out: &mut impl Write) -> Result<()> {
     match command {
@@ -151,7 +139,6 @@ pub fn run(command: MemoryCommand, mut memory: Backend, out: &mut impl Write) ->
         // These two work on the file itself, so they run on the machine that
         // holds the memory and nowhere else.
         MemoryCommand::Reindex(args) => reindex(args, memory.into_local("memory reindex")?, out),
-        MemoryCommand::Wiki(args) => wiki(args, memory.into_local("memory wiki")?),
     }
 }
 
@@ -266,11 +253,6 @@ pub fn reindex(args: ReindexArgs, mut memory: Memory, out: &mut impl Write) -> R
         all: args.all,
     })?;
     print_reindex(&report, out)
-}
-
-/// `embornal memory wiki`
-pub fn wiki(args: WikiArgs, memory: Memory) -> Result<()> {
-    crate::wiki::wiki(memory, args.port)
 }
 
 // ---------------------------------------------------------------------------
@@ -630,15 +612,6 @@ mod tests {
             panic!("expected a recall command");
         };
         assert!(args.meta);
-    }
-
-    #[test]
-    fn the_wiki_holds_the_documented_port() {
-        let MemoryCommand::Wiki(args) = parse(&["embornal", "memory", "wiki"]) else {
-            panic!("expected a wiki command");
-        };
-        assert_eq!(args.port, WIKI_PORT);
-        assert_eq!(WIKI_PORT, 1337);
     }
 
     fn sample() -> Listing {

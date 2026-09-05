@@ -61,6 +61,22 @@ Open `http://localhost:8000/` for the landing page. Open
 Do not open the generated HTML files directly. The website uses paths that
 start at the host root.
 
+## Develop with live reload
+
+Run this command from the repository root:
+
+```console
+$ just serve
+```
+
+The command starts the Hugo server and the Zensical server together. Each
+server watches its own files and rebuilds on a change.
+
+The two servers use separate ports. Open `http://localhost:1313/` for the
+landing page. Open `http://localhost:8000/` for the documentation.
+
+Press `Ctrl-C` to stop both servers.
+
 ## Change the landing page
 
 The `site/` directory contains the Hugo project. Edit

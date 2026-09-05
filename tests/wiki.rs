@@ -42,7 +42,7 @@ impl Server {
         }
 
         let mut child = Command::new(env!("CARGO_BIN_EXE_embornal"))
-            .args(["memory", "wiki", "--port", &port.to_string()])
+            .args(["dashboard", "--port", &port.to_string()])
             .env("EMBORNAL_EMBEDDING", "off")
             .env("EMBORNAL_HOME", &home)
             .stdout(Stdio::piped())
@@ -103,7 +103,21 @@ fn a_page_shows_the_facts_of_its_path() {
 
     assert!(page.starts_with("HTTP/1.1 200"));
     assert!(page.contains("The first fact."));
-    assert!(page.contains("<h1>/notes</h1>"));
+    assert!(page.contains("<h1 class=\"path-title\">/notes</h1>"));
+}
+
+#[test]
+fn the_facts_of_a_path_show_newest_first() {
+    let server = Server::start(
+        "order",
+        18815,
+        &[("/notes", "The first fact."), ("/notes", "The second fact.")],
+    );
+    let page = server.get("/notes");
+
+    let first = page.find("The first fact.").unwrap();
+    let second = page.find("The second fact.").unwrap();
+    assert!(second < first, "{page}");
 }
 
 #[test]
@@ -123,7 +137,7 @@ fn a_page_shows_the_metadata_of_its_path() {
         page.contains("2 facts · 3 facts total · 1 child · signal 1.000"),
         "{page}"
     );
-    assert!(page.contains("a</a> <span class=\"count\">1 fact · 1 fact total"));
+    assert!(page.contains("<span class=\"below-name\">a</span><span class=\"below-count\">1 · 1 total"));
     // Each fact carries its own strength and the day of its writing.
     let today = format!("signal 1.000 · {}", today());
     assert_eq!(page.matches(today.as_str()).count(), 2, "{page}");
@@ -142,17 +156,22 @@ fn a_fact_shows_the_tags_that_it_holds() {
     let page = server.get("/notes");
 
     // Every fact carries the tag that names its writer, because that tag
-    // decides who reads the fact. The tags come in the order of their keys.
+    // decides who reads the fact. The tags come in the order of their keys,
+    // each in its own badge.
     assert!(
         page.contains(&format!(
-            "signal 1.000 · {} · kind=note owner=default</div>",
+            "signal 1.000 · {} · <span class=\"tag\">kind=note</span>\
+             <span class=\"tag\">owner=default</span></div>",
             today()
         )),
         "{page}"
     );
     // The fact that nobody tagged still says who wrote it.
     assert!(
-        page.contains(&format!("signal 1.000 · {} · owner=default</div>", today())),
+        page.contains(&format!(
+            "signal 1.000 · {} · <span class=\"tag\">owner=default</span></div>",
+            today()
+        )),
         "{page}"
     );
 }
@@ -184,7 +203,7 @@ fn a_path_with_no_fact_shows_no_signal() {
         page.contains("0 facts · 1 fact total · 1 child</p>"),
         "{page}"
     );
-    assert!(!page.contains("<div class=\"about\">"), "{page}");
+    assert!(!page.contains("<div class=\"fact-meta\">"), "{page}");
 }
 
 #[test]
@@ -208,7 +227,7 @@ fn the_page_carries_a_trail_up_to_the_root() {
     assert!(page.contains("<a href=\"/\">root</a>"));
     assert!(page.contains("<a href=\"/a\">a</a>"));
     assert!(page.contains("<a href=\"/a/b\">b</a>"));
-    assert!(page.contains("<strong>c</strong>"));
+    assert!(page.contains("<span class=\"current\">c</span>"));
 }
 
 #[test]

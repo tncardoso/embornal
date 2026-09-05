@@ -125,6 +125,37 @@ present in the memory, is a third term for age: a fact grows old, and a summary
 of code does not. A summary is right until the code moves, and a moved hash
 says that at once.
 
+## `embornal dashboard`
+
+The dashboard shows a "Code" tab next to the wiki. It reads the tree of the
+repository, the definitions of one file, and a search over the summaries —
+all in a browser, all read-only.
+
+```
+embornal dashboard
+```
+
+See [The memory commands](../memory/cli.md#dashboard) for the flags that
+start it and for the wiki that sits next to this tab.
+
+The tree, on the left, marks each directory and file with a dot: filled for
+one that carries a summary, hollow for one that still waits. The directories
+that lead to the file you are reading stay open; the rest stay closed until
+you open them.
+
+Pick a file to read its own summary and description, and the flat list of
+what it defines: each name, its kind, and the line it starts on. One
+definition sits expanded below the list — the one that the link names, or the
+first one — with what an agent wrote about it and who wrote it.
+
+`/code/search` searches the same two indexes that `embornal code recall`
+does, keyword and vector, and shows the score of each answer next to it.
+
+`--path` and `--collection` choose which collection this tab reads, the same
+way they choose one for `embornal code index` and the other `embornal code`
+commands. A repository that nobody has indexed yet shows an empty tab, not an
+error.
+
 ## `embornal code bootstrap`
 
 Writes the instructions that teach an agent the loop.

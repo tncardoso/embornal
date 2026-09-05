@@ -1,17 +1,21 @@
 //! The wiki server.
 //!
-//! `embornal memory wiki` shows the memory as a small wiki. Each path is a
-//! page that holds its facts and the paths below it. A `[[/link]]` in a fact
+//! `embornal dashboard` shows the memory as a small wiki. Each path is a page
+//! that holds its facts and the paths below it. A `[[/link]]` in a fact
 //! becomes a link to that page.
 //!
 //! This server reads. It answers one person, and it has no login. The server
 //! that many people share is [`crate::api`], which asks for a token.
+//!
+//! The frame around the page — the header, the fonts, the colors — is
+//! [`crate::dashboard`], which [`crate::code_dashboard`] wears as well.
 
+use crate::dashboard::{self, Tab};
 use crate::error::{Error, Result};
 use crate::memory::api::{CatOptions, Memory, RecallOptions};
 use crate::memory::fact::Fact;
 use crate::memory::link::{self, Segment};
-use crate::memory::path::WikiPath;
+use crate::memory::path::{PathEntry, WikiPath};
 use crate::memory::tag::TagSet;
 use axum::Router;
 use axum::extract::{Path, Query, State};
@@ -27,31 +31,7 @@ use std::sync::{Arc, Mutex};
 /// One SQLite connection cannot serve two threads at once, so the handlers
 /// take turns. The work of one request is short, and this server answers one
 /// person, not a crowd.
-type Shared = Arc<Mutex<Memory>>;
-
-/// Starts the server and blocks until it stops.
-pub fn wiki(memory: Memory, port: u16) -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| Error::Serve(err.to_string()))?;
-
-    runtime.block_on(async move {
-        let state: Shared = Arc::new(Mutex::new(memory));
-        let app = router(state);
-
-        let address = format!("0.0.0.0:{port}");
-        let listener = tokio::net::TcpListener::bind(&address)
-            .await
-            .map_err(|err| Error::Serve(format!("cannot listen on {address}: {err}")))?;
-
-        println!("the wiki is at http://localhost:{port}");
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown())
-            .await
-            .map_err(|err| Error::Serve(err.to_string()))
-    })
-}
+pub type Shared = Arc<Mutex<Memory>>;
 
 /// Builds the routes.
 pub fn router(state: Shared) -> Router {
@@ -69,7 +49,7 @@ async fn index(State(state): State<Shared>) -> Response {
 async fn page(State(state): State<Shared>, Path(rest): Path<String>) -> Response {
     match WikiPath::parse(&format!("/{rest}")) {
         Ok(path) => render_page(&state, path),
-        Err(err) => error_page(StatusCode::BAD_REQUEST, &err.to_string()),
+        Err(err) => dashboard::error_page(StatusCode::BAD_REQUEST, Tab::Wiki, &err.to_string()),
     }
 }
 
@@ -93,30 +73,76 @@ async fn search(State(state): State<Shared>, Query(query): Query<SearchQuery>) -
 
     let hits = match hits {
         Ok(hits) => hits,
-        Err(err) => return error_page(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+        Err(err) => {
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Wiki,
+                    &err.to_string(),
+                );
+            }
     };
 
-    let mut body = String::new();
-    body.push_str(&search_form(&query.q));
-    body.push_str(&format!("<p class=\"count\">{} facts</p>", hits.len()));
-    body.push_str("<ul class=\"facts\">");
+    let mut list = String::new();
     for hit in &hits {
         let tags = match memory.effective_tags(hit.fact.id) {
             Ok(tags) => tags,
-            Err(err) => return error_page(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+            Err(err) => {
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Wiki,
+                    &err.to_string(),
+                );
+            }
         };
-        body.push_str(&format!(
-            "<li>{}<div class=\"where\"><a href=\"{}\">{}</a></div>{}</li>",
+        list.push_str(&format!(
+            "<li><a class=\"fact-where\" href=\"{}\">{}</a><p class=\"fact-content\">{}</p>{}</li>",
+            dashboard::escape(hit.fact.path.as_str()),
+            dashboard::escape(hit.fact.path.as_str()),
             render_content(&hit.fact.content),
-            escape(hit.fact.path.as_str()),
-            escape(hit.fact.path.as_str()),
             // The strength is the one that the fact had when the search found
             // it. The recall that follows lifts it.
-            about(hit.signal_strength, hit.fact.created_at, &tags)
+            fact_meta(hit.signal_strength, hit.fact.created_at, &tags)
         ));
     }
-    body.push_str("</ul>");
-    Html(document(&format!("search: {}", query.q), &body)).into_response()
+    let results = if list.is_empty() {
+        "<p class=\"empty-row\">No facts found.</p>".to_string()
+    } else {
+        format!("<ul class=\"facts\">{list}</ul>")
+    };
+
+    let title = if query.q.trim().is_empty() {
+        "search".to_string()
+    } else {
+        format!("search: {}", query.q)
+    };
+    let body = format!(
+        "{header}{search}<div class=\"card\">{results}</div>",
+        header = search_header(&query.q, hits.len()),
+        search = dashboard::search_bar(
+            "/search",
+            &query.q,
+            "recall — search facts by word or meaning",
+            false,
+            "⌘K",
+            None,
+        ),
+    );
+    Html(dashboard::document(&title, &body, Tab::Wiki)).into_response()
+}
+
+/// Builds the header of the search page: a label, the query, and the count.
+fn search_header(query: &str, count: usize) -> String {
+    let title = if query.trim().is_empty() {
+        "Every fact".to_string()
+    } else {
+        format!("“{query}”")
+    };
+    format!(
+        "<div class=\"page-header\"><p class=\"label\">Search</p>\
+         <h1 class=\"path-title\">{}</h1><p class=\"meta-line\">{}</p></div>",
+        dashboard::escape(&title),
+        dashboard::plural(count as u64, "fact", "facts")
+    )
 }
 
 /// Builds the page of one path.
@@ -126,55 +152,94 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
     let listing = match memory.ls(&path) {
         Ok(listing) => listing,
         Err(Error::PathNotFound(_)) => {
-            return error_page(StatusCode::NOT_FOUND, &format!("{path} holds nothing yet"));
+            return dashboard::error_page(
+                StatusCode::NOT_FOUND,
+                Tab::Wiki,
+                &format!("{path} holds nothing yet"),
+            );
         }
-        Err(err) => return error_page(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+        Err(err) => {
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Wiki,
+                    &err.to_string(),
+                );
+            }
     };
 
     // Reading a page is not a recall: the page shows each fact of the path at
     // once, so it says nothing about which fact was useful.
-    let facts = match memory.cat(&path, CatOptions::default()) {
+    let mut facts = match memory.cat(&path, CatOptions::default()) {
         Ok(facts) => facts,
-        Err(err) => return error_page(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+        Err(err) => {
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Wiki,
+                    &err.to_string(),
+                );
+            }
     };
+    // `cat` reads oldest first, like a document read top to bottom. The page
+    // reads like a feed, so it shows the newest fact first.
+    facts.reverse();
 
     let tags = match tags_of(&memory, &facts) {
         Ok(tags) => tags,
-        Err(err) => return error_page(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+        Err(err) => {
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Wiki,
+                    &err.to_string(),
+                );
+            }
     };
 
     let now = Utc::now();
-    let mut body = String::new();
-    body.push_str(&search_form(""));
-    body.push_str(&breadcrumbs(&path));
-    body.push_str(&metadata(
+    let path_strength = strength(&facts, now);
+    let header = page_header(
+        &path,
         listing.fact_count,
         listing.subtree_fact_count,
         listing.children.len() as u64,
-        strength(&facts, now),
-    ));
-    body.push_str(&render_facts(&facts, &tags, now));
+        path_strength,
+    );
 
-    if !listing.children.is_empty() {
-        body.push_str("<h2>Below</h2><ul class=\"children\">");
-        for entry in &listing.children {
-            let name = entry.path.segment().unwrap_or("/");
-            body.push_str(&format!(
-                "<li><a href=\"{}\">{}</a> <span class=\"count\">{} · {} total</span></li>",
-                escape(entry.path.as_str()),
-                escape(name),
-                plural(entry.fact_count, "fact", "facts"),
-                plural(entry.subtree_fact_count, "fact", "facts"),
-            ));
-        }
-        body.push_str("</ul>");
-    }
+    let search = dashboard::search_bar(
+        "/search",
+        "",
+        "recall — search facts by word or meaning",
+        false,
+        "⌘K",
+        None,
+    );
+    let body = if facts.is_empty() && listing.children.is_empty() {
+        format!("{header}{search}<div class=\"empty-state\">This path holds nothing.</div>")
+    } else {
+        format!(
+            "{header}{search}<div class=\"body\">{}{}</div>",
+            facts_panel(&facts, &tags, now),
+            sidebar_panel(&listing.children, facts.len(), path_strength),
+        )
+    };
 
-    if facts.is_empty() && listing.children.is_empty() {
-        body.push_str("<p class=\"empty\">This path holds nothing.</p>");
-    }
+    Html(dashboard::document(path.as_str(), &body, Tab::Wiki)).into_response()
+}
 
-    Html(document(path.as_str(), &body)).into_response()
+/// Builds the trail, the path title and the metadata line at the top of a
+/// page.
+fn page_header(
+    path: &WikiPath,
+    fact_count: u64,
+    subtree_fact_count: u64,
+    child_count: u64,
+    strength: Option<f64>,
+) -> String {
+    format!(
+        "<div class=\"page-header\">{}<h1 class=\"path-title\">{}</h1>{}</div>",
+        breadcrumbs(path),
+        dashboard::escape(path.as_str()),
+        metadata(fact_count, subtree_fact_count, child_count, strength)
+    )
 }
 
 /// Builds the line that says what the path holds.
@@ -189,20 +254,14 @@ fn metadata(
     strength: Option<f64>,
 ) -> String {
     let mut parts = vec![
-        plural(fact_count, "fact", "facts"),
-        format!("{} total", plural(subtree_fact_count, "fact", "facts")),
-        plural(child_count, "child", "children"),
+        dashboard::plural(fact_count, "fact", "facts"),
+        format!("{} total", dashboard::plural(subtree_fact_count, "fact", "facts")),
+        dashboard::plural(child_count, "child", "children"),
     ];
     if let Some(strength) = strength {
         parts.push(format!("signal {strength:.3}"));
     }
-    format!("<p class=\"meta\">{}</p>", parts.join(" · "))
-}
-
-/// Returns the count with the word that goes with it.
-fn plural(count: u64, one: &str, many: &str) -> String {
-    let word = if count == 1 { one } else { many };
-    format!("{count} {word}")
+    format!("<p class=\"meta-line\">{}</p>", parts.join(" · "))
 }
 
 /// Reads the tags of each fact, in the order of the facts.
@@ -225,6 +284,24 @@ fn strength(facts: &[Fact], now: DateTime<Utc>) -> Option<f64> {
     Some(total / facts.len() as f64)
 }
 
+/// Builds the "Facts" column: its header and the card that holds the list.
+///
+/// A path with no fact still shows the card, with a line that says so, so
+/// that the column never collapses to nothing next to the sidebar.
+fn facts_panel(facts: &[Fact], tags: &[TagSet], now: DateTime<Utc>) -> String {
+    let list = render_facts(facts, tags, now);
+    let list = if list.is_empty() {
+        "<p class=\"empty-row\">No facts yet.</p>".to_string()
+    } else {
+        list
+    };
+    format!(
+        "<section class=\"facts-col\"><div class=\"facts-head\">\
+         <p class=\"label\">Facts</p><span class=\"hint\">newest first</span></div>\
+         <div class=\"card\">{list}</div></section>"
+    )
+}
+
 /// Builds the list of the facts of one path.
 ///
 /// Each fact carries its own strength at `now`, because a path can hold a
@@ -237,9 +314,9 @@ fn render_facts(facts: &[Fact], tags: &[TagSet], now: DateTime<Utc>) -> String {
     let mut html = String::from("<ul class=\"facts\">");
     for (fact, tags) in facts.iter().zip(tags) {
         html.push_str(&format!(
-            "<li>{}{}</li>",
+            "<li><p class=\"fact-content\">{}</p>{}</li>",
             render_content(&fact.content),
-            about(fact.signal.strength_at(now), fact.created_at, tags)
+            fact_meta(fact.signal.strength_at(now), fact.created_at, tags)
         ));
     }
     html.push_str("</ul>");
@@ -250,23 +327,68 @@ fn render_facts(facts: &[Fact], tags: &[TagSet], now: DateTime<Utc>) -> String {
 ///
 /// The strength goes from 1.000 for a fact that somebody just read to 0.000
 /// for a fact that the memory almost lost. The date is the day on which
-/// somebody wrote the fact. The tags are the ones that decide who reads it,
-/// which include the tags that the fact takes from the paths above it. A fact
-/// with no tag shows no tags.
-fn about(strength: f64, created_at: DateTime<Utc>, tags: &TagSet) -> String {
-    let mut parts = vec![
-        format!("signal {strength:.3}"),
-        created_at.format("%Y-%m-%d").to_string(),
-    ];
+/// somebody wrote the fact. Each tag that decides who reads the fact, which
+/// include the tags that the fact takes from the paths above it, gets its own
+/// badge. A fact with no tag stops at the day.
+fn fact_meta(strength: f64, created_at: DateTime<Utc>, tags: &TagSet) -> String {
+    let mut html = format!("signal {strength:.3} · {}", created_at.format("%Y-%m-%d"));
     if !tags.is_empty() {
-        parts.push(
-            tags.iter()
-                .map(|tag| escape(&tag.to_string()))
-                .collect::<Vec<_>>()
-                .join(" "),
-        );
+        html.push_str(" · ");
+        for tag in tags.iter() {
+            html.push_str(&format!(
+                "<span class=\"tag\">{}</span>",
+                dashboard::escape(&tag.to_string())
+            ));
+        }
     }
-    format!("<div class=\"about\">{}</div>", parts.join(" · "))
+    format!("<div class=\"fact-meta\">{html}</div>")
+}
+
+/// Builds the sidebar: the "Below" card, the signal card, or neither.
+///
+/// A path with no child below it has no "Below" card. A path with no fact has
+/// no signal, so it has no signal card either. With nothing to show, the
+/// sidebar itself is absent, and the facts column takes the row alone.
+fn sidebar_panel(children: &[PathEntry], fact_count: usize, strength: Option<f64>) -> String {
+    let mut cards = String::new();
+    if !children.is_empty() {
+        cards.push_str(&below_card(children));
+    }
+    if let Some(strength) = strength {
+        cards.push_str(&signal_card(strength, fact_count as u64));
+    }
+    if cards.is_empty() {
+        return String::new();
+    }
+    format!("<aside class=\"sidebar-col\">{cards}</aside>")
+}
+
+/// Builds the card that lists the paths one step below the current path.
+fn below_card(children: &[PathEntry]) -> String {
+    let mut html = String::from("<div class=\"card\"><div class=\"below-head\">Below</div>");
+    for entry in children {
+        let name = entry.path.segment().unwrap_or("/");
+        html.push_str(&format!(
+            "<a class=\"below-row\" href=\"{}\"><span class=\"below-name\">{}</span>\
+             <span class=\"below-count\">{} · {} total</span></a>",
+            dashboard::escape(entry.path.as_str()),
+            dashboard::escape(name),
+            entry.fact_count,
+            entry.subtree_fact_count
+        ));
+    }
+    html.push_str("</div>");
+    html
+}
+
+/// Builds the card that shows the mean signal of the path.
+fn signal_card(strength: f64, fact_count: u64) -> String {
+    format!(
+        "<div class=\"signal-card\"><div class=\"signal-label\">Path signal</div>\
+         <div class=\"signal-value\">{strength:.3}</div>\
+         <div class=\"signal-caption\">mean freshness of {}</div></div>",
+        dashboard::plural(fact_count, "fact", "facts")
+    )
 }
 
 /// Turns the content of a fact into HTML, with the links followed.
@@ -274,107 +396,46 @@ pub fn render_content(content: &str) -> String {
     let mut html = String::new();
     for segment in link::parse(content) {
         match segment {
-            Segment::Text(text) => html.push_str(&escape(text)),
+            Segment::Text(text) => html.push_str(&dashboard::escape(text)),
             Segment::Link { target, label } => html.push_str(&format!(
                 "<a href=\"{}\">{}</a>",
-                escape(target.as_str()),
-                escape(label)
+                dashboard::escape(target.as_str()),
+                dashboard::escape(label)
             )),
             // A pair of brackets that is not a path stays as it was written.
-            Segment::Broken(text) => html.push_str(&escape(&format!("[[{text}]]"))),
+            Segment::Broken(text) => html.push_str(&dashboard::escape(&format!("[[{text}]]"))),
         }
     }
     html
 }
 
 /// Builds the trail from the root down to the path.
+///
+/// Every step but the last links to its own page. The last step is the page
+/// itself, so it carries no link.
 fn breadcrumbs(path: &WikiPath) -> String {
     let mut html = String::from("<nav class=\"trail\">");
     let chain = path.ancestry();
     for (index, step) in chain.iter().enumerate() {
         if index > 0 {
-            html.push_str(" / ");
+            html.push_str("<span class=\"sep\">/</span>");
         }
         let label = step.segment().unwrap_or("root");
         if index + 1 == chain.len() {
-            html.push_str(&format!("<strong>{}</strong>", escape(label)));
+            html.push_str(&format!(
+                "<span class=\"current\">{}</span>",
+                dashboard::escape(label)
+            ));
         } else {
             html.push_str(&format!(
                 "<a href=\"{}\">{}</a>",
-                escape(step.as_str()),
-                escape(label)
+                dashboard::escape(step.as_str()),
+                dashboard::escape(label)
             ));
         }
     }
     html.push_str("</nav>");
     html
-}
-
-fn search_form(value: &str) -> String {
-    format!(
-        "<form class=\"search\" action=\"/search\" method=\"get\">\
-         <input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"recall\" autofocus>\
-         </form>",
-        escape(value)
-    )
-}
-
-fn error_page(status: StatusCode, message: &str) -> Response {
-    let body = format!("<p class=\"error\">{}</p>", escape(message));
-    (status, Html(document("not found", &body))).into_response()
-}
-
-/// Wraps the body in a page.
-fn document(title: &str, body: &str) -> String {
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-         <title>{title} — embornal</title><style>{STYLE}</style></head>\
-         <body><header><a class=\"home\" href=\"/\">embornal</a></header>\
-         <main><h1>{title}</h1>{body}</main></body></html>",
-        title = escape(title)
-    )
-}
-
-const STYLE: &str = "
-:root { color-scheme: light dark; }
-body { font: 16px/1.6 system-ui, sans-serif; max-width: 44rem; margin: 0 auto; padding: 1.5rem; }
-header { border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); padding-bottom: .5rem; margin-bottom: 1.5rem; }
-a.home { font-weight: 600; text-decoration: none; }
-h1 { font-size: 1.4rem; font-family: ui-monospace, monospace; }
-h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin-top: 2rem; }
-nav.trail { font-family: ui-monospace, monospace; font-size: .9rem; margin-bottom: 1rem; }
-ul.facts { list-style: none; padding: 0; }
-ul.facts li { padding: .6rem 0; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
-ul.children { list-style: none; padding: 0; font-family: ui-monospace, monospace; }
-ul.children li { padding: .2rem 0; }
-.count, .where, .about { opacity: .55; font-size: .85rem; }
-.about { font-family: ui-monospace, monospace; margin-top: .2rem; }
-p.meta { font-family: ui-monospace, monospace; font-size: .85rem; opacity: .55; margin: 0 0 1rem; }
-.empty, .error { opacity: .6; font-style: italic; }
-form.search { margin-bottom: 1.5rem; }
-form.search input { width: 100%; padding: .5rem .7rem; font: inherit; border-radius: .4rem;
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent); background: transparent; color: inherit; }
-";
-
-/// Makes a string safe to put into HTML.
-pub fn escape(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-async fn shutdown() {
-    let _ = tokio::signal::ctrl_c().await;
 }
 
 #[cfg(test)]
@@ -383,15 +444,6 @@ mod tests {
     use crate::memory::tag::Tag;
     use crate::memory::{FactId, PathId, Signal};
     use ulid::Ulid;
-
-    #[test]
-    fn escapes_what_a_browser_would_read_as_markup() {
-        assert_eq!(escape("<script>"), "&lt;script&gt;");
-        assert_eq!(escape("a & b"), "a &amp; b");
-        assert_eq!(escape("say \"hi\""), "say &quot;hi&quot;");
-        assert_eq!(escape("it's"), "it&#39;s");
-        assert_eq!(escape("plain"), "plain");
-    }
 
     #[test]
     fn a_link_becomes_an_anchor() {
@@ -426,7 +478,7 @@ mod tests {
     fn a_path_that_looks_like_markup_cannot_reach_the_page() {
         // The path type refuses these, and the escape is the second wall.
         assert!(WikiPath::parse("/<script>").is_err());
-        assert!(escape("/\"onload=\"").contains("&quot;"));
+        assert!(dashboard::escape("/\"onload=\"").contains("&quot;"));
     }
 
     #[test]
@@ -434,14 +486,14 @@ mod tests {
         let html = breadcrumbs(&WikiPath::parse("/a/b").unwrap());
         assert!(html.contains("<a href=\"/\">root</a>"));
         assert!(html.contains("<a href=\"/a\">a</a>"));
-        assert!(html.contains("<strong>b</strong>"));
+        assert!(html.contains("<span class=\"current\">b</span>"));
         assert!(!html.contains("<a href=\"/a/b\">"));
     }
 
     #[test]
     fn the_trail_of_the_root_holds_the_root_only() {
         let html = breadcrumbs(&WikiPath::root());
-        assert!(html.contains("<strong>root</strong>"));
+        assert!(html.contains("<span class=\"current\">root</span>"));
         assert!(!html.contains("<a href"));
     }
 
@@ -449,7 +501,7 @@ mod tests {
     fn the_metadata_holds_the_counts_and_the_signal() {
         assert_eq!(
             metadata(3, 5, 2, Some(0.8127)),
-            "<p class=\"meta\">3 facts · 5 facts total · 2 children · signal 0.813</p>"
+            "<p class=\"meta-line\">3 facts · 5 facts total · 2 children · signal 0.813</p>"
         );
     }
 
@@ -457,7 +509,7 @@ mod tests {
     fn the_metadata_uses_the_singular_for_one() {
         assert_eq!(
             metadata(1, 1, 1, None),
-            "<p class=\"meta\">1 fact · 1 fact total · 1 child</p>"
+            "<p class=\"meta-line\">1 fact · 1 fact total · 1 child</p>"
         );
     }
 
@@ -465,7 +517,7 @@ mod tests {
     fn a_path_with_no_fact_has_no_signal() {
         assert_eq!(
             metadata(0, 0, 4, None),
-            "<p class=\"meta\">0 facts · 0 facts total · 4 children</p>"
+            "<p class=\"meta-line\">0 facts · 0 facts total · 4 children</p>"
         );
     }
 
@@ -478,11 +530,11 @@ mod tests {
 
         let html = render_facts(&[fresh, old], &[TagSet::new(), TagSet::new()], now);
         assert!(
-            html.contains("<div class=\"about\">signal 1.000 · 2026-07-28</div>"),
+            html.contains("<div class=\"fact-meta\">signal 1.000 · 2026-07-28</div>"),
             "{html}"
         );
         assert!(
-            html.contains("<div class=\"about\">signal 0.000 · 2026-07-28</div>"),
+            html.contains("<div class=\"fact-meta\">signal 0.000 · 2026-07-28</div>"),
             "{html}"
         );
     }
@@ -495,8 +547,9 @@ mod tests {
         tags.insert(Tag::parse("kind=note").unwrap());
 
         assert_eq!(
-            about(1.0, written, &tags),
-            "<div class=\"about\">signal 1.000 · 2026-07-28 · kind=note visibility=private</div>"
+            fact_meta(1.0, written, &tags),
+            "<div class=\"fact-meta\">signal 1.000 · 2026-07-28 · \
+             <span class=\"tag\">kind=note</span><span class=\"tag\">visibility=private</span></div>"
         );
     }
 
@@ -504,14 +557,20 @@ mod tests {
     fn a_fact_with_no_tag_shows_the_signal_and_the_date_only() {
         let written = "2026-07-28T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
         assert_eq!(
-            about(0.5, written, &TagSet::new()),
-            "<div class=\"about\">signal 0.500 · 2026-07-28</div>"
+            fact_meta(0.5, written, &TagSet::new()),
+            "<div class=\"fact-meta\">signal 0.500 · 2026-07-28</div>"
         );
     }
 
     #[test]
     fn a_path_with_no_fact_holds_no_list() {
         assert_eq!(render_facts(&[], &[], Utc::now()), "");
+    }
+
+    #[test]
+    fn facts_panel_shows_a_message_when_there_is_no_fact() {
+        let html = facts_panel(&[], &[], Utc::now());
+        assert!(html.contains("No facts yet."), "{html}");
     }
 
     #[test]
@@ -545,11 +604,55 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_document_carries_the_title_once_escaped() {
-        let html = document("/a & b", "<p>x</p>");
-        assert!(html.contains("<title>/a &amp; b — embornal</title>"));
-        assert!(html.contains("<p>x</p>"));
-        assert!(!html.contains("/a & b"));
+    fn entry(path: &str, fact_count: u64, subtree_fact_count: u64) -> PathEntry {
+        PathEntry {
+            path: WikiPath::parse(path).unwrap(),
+            fact_count,
+            subtree_fact_count,
+            child_count: 0,
+        }
     }
+
+    #[test]
+    fn below_card_links_to_each_child_with_its_counts() {
+        let children = [entry("/memory", 3, 12), entry("/server", 0, 1)];
+        let html = below_card(&children);
+
+        assert!(html.contains("<div class=\"below-head\">Below</div>"));
+        assert!(html.contains(
+            "<a class=\"below-row\" href=\"/memory\"><span class=\"below-name\">memory</span>\
+             <span class=\"below-count\">3 · 12 total</span></a>"
+        ));
+        assert!(html.contains("<span class=\"below-count\">0 · 1 total</span>"));
+    }
+
+    #[test]
+    fn signal_card_shows_the_mean_and_the_caption() {
+        let html = signal_card(0.8127, 7);
+        assert!(html.contains("<div class=\"signal-value\">0.813</div>"));
+        assert!(html.contains("mean freshness of 7 facts"));
+
+        let html = signal_card(1.0, 1);
+        assert!(html.contains("mean freshness of 1 fact"));
+    }
+
+    #[test]
+    fn the_sidebar_is_empty_when_there_is_nothing_to_show() {
+        assert_eq!(sidebar_panel(&[], 0, None), "");
+    }
+
+    #[test]
+    fn the_sidebar_holds_only_the_cards_that_apply() {
+        let children = [entry("/a", 1, 1)];
+
+        let html = sidebar_panel(&children, 3, Some(0.5));
+        assert!(html.contains("below-head") && html.contains("signal-card"));
+
+        let html = sidebar_panel(&[], 3, Some(0.5));
+        assert!(!html.contains("below-head") && html.contains("signal-card"));
+
+        let html = sidebar_panel(&children, 0, None);
+        assert!(html.contains("below-head") && !html.contains("signal-card"));
+    }
+
 }

@@ -490,6 +490,6 @@ mod tests {
         assert_eq!(route("/whoami"), "/api/v1/whoami");
         assert!(API_ROOT.starts_with('/'));
         // The wiki and the memory do not share a port by accident.
-        assert_ne!(SERVE_PORT, crate::cli::memory::WIKI_PORT);
+        assert_ne!(SERVE_PORT, crate::dashboard::DASHBOARD_PORT);
     }
 }

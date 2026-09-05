@@ -31,6 +31,14 @@ The format is based on [Keep a Changelog][kac], and this project uses
   index, and `embornal code tree` and `embornal code cat` read the index.
 - `embornal memory bootstrap` and `embornal code bootstrap` write the
   instructions of one tool. `embornal bootstrap` writes all of them.
+- The dashboard's "Code" tab shows a code index in a browser: a tree of the
+  repository that marks each node described or waiting, the summary and the
+  definitions of the file that is open, and a search over the same keyword
+  and vector indexes that `embornal code recall` reads. `embornal dashboard`
+  takes the `--path` and `--collection` flags of `embornal code` to say which
+  index it shows. `src/code/api.rs` gained two small queries for it:
+  `definitions`, the flat list of what one file defines, and
+  `subtree_status`, the node and summary counts below one path.
 
 ### Changed
 
@@ -38,6 +46,13 @@ The format is based on [Keep a Changelog][kac], and this project uses
   SQLite file opens, how a schema walks forward, and the arithmetic that puts
   a keyword index and a vector index on one scale. The behaviour of the memory
   is unchanged.
+- **Breaking.** `embornal memory wiki` is now `embornal dashboard`. The
+  command moves out of the `memory` group, next to `embornal serve`.
+- The dashboard has a new look: a header with the wordmark and a status line,
+  a search bar, and a sidebar next to the facts that lists the paths below
+  the current one and the signal of the path. It shares its colors and its
+  two type families, Space Grotesk and IBM Plex Mono, with the landing page.
+  The facts of a path now show newest first.
 
 ## [0.2.0] - 2026-08-19
 

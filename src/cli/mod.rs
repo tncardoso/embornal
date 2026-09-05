@@ -58,6 +58,8 @@ pub enum Command {
     Token(token::TokenCommand),
     /// Puts this memory behind HTTP, so that other machines can use it.
     Serve(ServeArgs),
+    /// Starts the wiki, which shows the memory in a browser.
+    Dashboard(DashboardArgs),
     /// Writes the bootstrap instructions for agents. Add to ~/.claude/AGENTS.md
     Bootstrap(bootstrap::BootstrapArgs),
 }
@@ -96,6 +98,13 @@ pub fn run(cli: Cli, out: &mut impl Write) -> Result<()> {
         }
 
         Command::Serve(args) => serve(args, open(None)?.into_local("serve")?),
+
+        Command::Dashboard(args) => {
+            let subject = cli.as_subject.clone();
+            let memory = open(cli.as_subject)?.into_local("dashboard")?;
+            let code = open_code(subject)?;
+            dashboard(args, memory, code)
+        }
     }
 }
 
@@ -117,6 +126,23 @@ pub struct ServeArgs {
 /// `embornal serve`
 fn serve(args: ServeArgs, memory: Memory) -> Result<()> {
     crate::api::serve(memory, std::net::SocketAddr::new(args.bind, args.port))
+}
+
+/// The arguments of `embornal dashboard`.
+#[derive(Debug, clap::Args)]
+pub struct DashboardArgs {
+    /// The port to listen on.
+    #[arg(long, default_value_t = crate::dashboard::DASHBOARD_PORT)]
+    pub port: u16,
+    /// Which repository's code index the "Code" tab shows.
+    #[command(flatten)]
+    pub code: code::CollectionArgs,
+}
+
+/// `embornal dashboard`
+fn dashboard(args: DashboardArgs, memory: Memory, code: crate::code::CodeIndex) -> Result<()> {
+    let (_, collection) = code::which(&args.code)?;
+    crate::dashboard::serve(memory, code, collection, args.port)
 }
 
 /// Opens the memory that this machine is set up to use.
@@ -187,5 +213,35 @@ mod tests {
         let cli =
             Cli::try_parse_from(["embornal", "--as-subject", "agent", "memory", "ls"]).unwrap();
         assert_eq!(cli.as_subject.as_deref(), Some("agent"));
+    }
+
+    #[test]
+    fn the_dashboard_holds_the_documented_port() {
+        let cli = Cli::try_parse_from(["embornal", "dashboard"]).unwrap();
+        let Command::Dashboard(args) = cli.command else {
+            panic!("expected a dashboard command");
+        };
+        assert_eq!(args.port, crate::dashboard::DASHBOARD_PORT);
+        assert_eq!(crate::dashboard::DASHBOARD_PORT, 1337);
+        assert_eq!(args.code.path, None);
+        assert_eq!(args.code.collection, None);
+    }
+
+    #[test]
+    fn the_dashboard_accepts_the_collection_flags() {
+        let cli = Cli::try_parse_from([
+            "embornal",
+            "dashboard",
+            "--path",
+            "/tmp/repo",
+            "--collection",
+            "custom",
+        ])
+        .unwrap();
+        let Command::Dashboard(args) = cli.command else {
+            panic!("expected a dashboard command");
+        };
+        assert_eq!(args.code.path.as_deref(), Some(std::path::Path::new("/tmp/repo")));
+        assert_eq!(args.code.collection.as_deref(), Some("custom"));
     }
 }

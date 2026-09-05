@@ -828,11 +828,11 @@ fn a_name_that_cannot_be_an_access_tag_is_not_a_subject() {
 fn the_help_names_each_command() {
     let sandbox = Sandbox::new("help");
     let help = sandbox.ok(&["memory", "--help"]);
-    for command in ["store", "ls", "tree", "cat", "recall", "reindex", "wiki"] {
+    for command in ["store", "ls", "tree", "cat", "recall", "reindex"] {
         assert!(help.contains(command), "{command} is missing from the help");
     }
     let top = sandbox.ok(&["--help"]);
-    for command in ["memory", "token", "bootstrap"] {
+    for command in ["memory", "token", "bootstrap", "dashboard"] {
         assert!(top.contains(command), "{command} is missing from the help");
     }
 }

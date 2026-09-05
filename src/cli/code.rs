@@ -166,7 +166,7 @@ pub fn run(
 }
 
 /// The repository and the name of the index that a command works on.
-fn which(args: &CollectionArgs) -> Result<(PathBuf, String)> {
+pub(crate) fn which(args: &CollectionArgs) -> Result<(PathBuf, String)> {
     let start = match &args.path {
         Some(path) => path.clone(),
         None => std::env::current_dir().map_err(|source| Error::Io {

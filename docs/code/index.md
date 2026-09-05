@@ -64,6 +64,9 @@ described 17
 $ embornal code recall "how a tree is drawn"
 ```
 
+`embornal dashboard` shows the same tree, the same summaries, and the same
+search in a browser, under a "Code" tab next to the wiki.
+
 To teach an agent the loop, add the instructions to the global AGENTS.md:
 
 ``` bash

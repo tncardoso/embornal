@@ -338,7 +338,7 @@ fn the_commands_that_need_the_file_say_where_to_run_them() {
     client.points_at(18927, "emb_a_b");
 
     for args in [
-        vec!["memory", "wiki"],
+        vec!["dashboard"],
         vec!["memory", "reindex"],
         vec!["token", "ls"],
         vec!["serve"],

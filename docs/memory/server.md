@@ -116,7 +116,7 @@ client that tries them stops and says so.
 | Command | Why |
 | ------- | --- |
 | `embornal serve` | It opens the file. |
-| `embornal memory wiki` | It reads the file. |
+| `embornal dashboard` | It reads the file. |
 | `embornal memory reindex` | It writes a vector for each fact. |
 | `embornal token ...` | The first token cannot come through a server. |
 
