@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog][kac], and this project uses
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-04
+
 ### Added
 
 - A second tool, `embornal code`. It holds a map of a repository: a tree of

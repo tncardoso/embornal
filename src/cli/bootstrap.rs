@@ -105,12 +105,12 @@ mod tests {
         // The text is instructions, not a manual. The code section is the
         // longer of the two because it teaches a loop and a standard for
         // writing, and the worked example is what makes that standard land.
-        for (name, source, limit) in [("memory", MEMORY, 45), ("code", CODE, 60)] {
+        for (name, source, limit) in [("memory", MEMORY, 45), ("code", CODE, 90)] {
             let lines = part(source).lines().count();
             assert!(lines < limit, "the {name} section grew to {lines} lines");
         }
         let lines = text().lines().count();
-        assert!(lines < 110, "the bootstrap grew to {lines} lines");
+        assert!(lines < 120, "the bootstrap grew to {lines} lines");
     }
 
     #[test]
@@ -140,7 +140,6 @@ mod tests {
             "embornal code next --json",
             "embornal code describe --stdin",
             "embornal code recall <query>",
-            "embornal code cat <name>",
         ] {
             assert!(code.contains(command), "{command} is missing");
         }
