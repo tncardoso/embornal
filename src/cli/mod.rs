@@ -241,7 +241,10 @@ mod tests {
         let Command::Dashboard(args) = cli.command else {
             panic!("expected a dashboard command");
         };
-        assert_eq!(args.code.path.as_deref(), Some(std::path::Path::new("/tmp/repo")));
+        assert_eq!(
+            args.code.path.as_deref(),
+            Some(std::path::Path::new("/tmp/repo"))
+        );
         assert_eq!(args.code.collection.as_deref(), Some("custom"));
     }
 }

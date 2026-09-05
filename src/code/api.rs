@@ -921,7 +921,10 @@ mod tests {
         let index = open(&repo);
 
         let found = definitions(index.database(), "test", "src/a.rs").unwrap();
-        let names: Vec<&str> = found.iter().map(|node| node.qualified_name.as_str()).collect();
+        let names: Vec<&str> = found
+            .iter()
+            .map(|node| node.qualified_name.as_str())
+            .collect();
         assert_eq!(
             names,
             vec![
@@ -933,7 +936,11 @@ mod tests {
         );
 
         // The file itself, and the collection root, hold no definitions.
-        assert!(definitions(index.database(), "test", "src/b.rs").unwrap().is_empty());
+        assert!(
+            definitions(index.database(), "test", "src/b.rs")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

@@ -74,12 +74,12 @@ async fn search(State(state): State<Shared>, Query(query): Query<SearchQuery>) -
     let hits = match hits {
         Ok(hits) => hits,
         Err(err) => {
-                return dashboard::error_page(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Tab::Wiki,
-                    &err.to_string(),
-                );
-            }
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Wiki,
+                &err.to_string(),
+            );
+        }
     };
 
     let mut list = String::new();
@@ -159,12 +159,12 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
             );
         }
         Err(err) => {
-                return dashboard::error_page(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Tab::Wiki,
-                    &err.to_string(),
-                );
-            }
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Wiki,
+                &err.to_string(),
+            );
+        }
     };
 
     // Reading a page is not a recall: the page shows each fact of the path at
@@ -172,12 +172,12 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
     let mut facts = match memory.cat(&path, CatOptions::default()) {
         Ok(facts) => facts,
         Err(err) => {
-                return dashboard::error_page(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Tab::Wiki,
-                    &err.to_string(),
-                );
-            }
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Wiki,
+                &err.to_string(),
+            );
+        }
     };
     // `cat` reads oldest first, like a document read top to bottom. The page
     // reads like a feed, so it shows the newest fact first.
@@ -186,12 +186,12 @@ fn render_page(state: &Shared, path: WikiPath) -> Response {
     let tags = match tags_of(&memory, &facts) {
         Ok(tags) => tags,
         Err(err) => {
-                return dashboard::error_page(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Tab::Wiki,
-                    &err.to_string(),
-                );
-            }
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Wiki,
+                &err.to_string(),
+            );
+        }
     };
 
     let now = Utc::now();
@@ -255,7 +255,10 @@ fn metadata(
 ) -> String {
     let mut parts = vec![
         dashboard::plural(fact_count, "fact", "facts"),
-        format!("{} total", dashboard::plural(subtree_fact_count, "fact", "facts")),
+        format!(
+            "{} total",
+            dashboard::plural(subtree_fact_count, "fact", "facts")
+        ),
         dashboard::plural(child_count, "child", "children"),
     ];
     if let Some(strength) = strength {
@@ -654,5 +657,4 @@ mod tests {
         let html = sidebar_panel(&children, 0, None);
         assert!(html.contains("below-head") && !html.contains("signal-card"));
     }
-
 }

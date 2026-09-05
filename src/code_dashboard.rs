@@ -66,7 +66,10 @@ struct SearchQuery {
 }
 
 async fn search(State(state): State<CodeState>, Query(query): Query<SearchQuery>) -> Response {
-    let mut index = state.index.lock().expect("the code index lock is never poisoned");
+    let mut index = state
+        .index
+        .lock()
+        .expect("the code index lock is never poisoned");
     let collection = state.collection.as_str();
 
     let (hits, elapsed) = if query.q.trim().is_empty() {
@@ -77,7 +80,11 @@ async fn search(State(state): State<CodeState>, Query(query): Query<SearchQuery>
             Ok(hits) => (hits, Some(start.elapsed())),
             Err(Error::NoSuchCollection(_)) => return not_indexed_page(collection),
             Err(err) => {
-                return dashboard::error_page(StatusCode::INTERNAL_SERVER_ERROR, Tab::Code, &err.to_string());
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Code,
+                    &err.to_string(),
+                );
             }
         }
     };
@@ -94,7 +101,8 @@ async fn search(State(state): State<CodeState>, Query(query): Query<SearchQuery>
     );
 
     let results = if query.q.trim().is_empty() {
-        "<p class=\"empty-row\">Type a word, or a whole sentence, to search the code.</p>".to_string()
+        "<p class=\"empty-row\">Type a word, or a whole sentence, to search the code.</p>"
+            .to_string()
     } else if hits.is_empty() {
         "<p class=\"empty-row\">No matches.</p>".to_string()
     } else {
@@ -105,10 +113,14 @@ async fn search(State(state): State<CodeState>, Query(query): Query<SearchQuery>
     Html(dashboard::document("code search", &body, Tab::Code)).into_response()
 }
 
-
 /// Builds the header of the search page: the collection, the query, and how
 /// the answer was found.
-fn search_header(collection: &str, query: &str, hits: &[Hit], elapsed: Option<std::time::Duration>) -> String {
+fn search_header(
+    collection: &str,
+    query: &str,
+    hits: &[Hit],
+    elapsed: Option<std::time::Duration>,
+) -> String {
     let title = if query.trim().is_empty() {
         "Search the code".to_string()
     } else {
@@ -150,7 +162,10 @@ fn result_rows(hits: &[Hit]) -> String {
     let mut html = String::from("<ul class=\"results\">");
     for hit in hits {
         let short_name = short_name(&hit.qualified_name);
-        let line = hit.start_line.map(|line| format!(":{line}")).unwrap_or_default();
+        let line = hit
+            .start_line
+            .map(|line| format!(":{line}"))
+            .unwrap_or_default();
         let score = hit.score.clamp(0.0, 1.0) * 100.0;
         html.push_str(&format!(
             "<li><a class=\"result-row\" href=\"/code/{}?def={}\">\
@@ -177,14 +192,21 @@ fn result_rows(hits: &[Hit]) -> String {
 
 /// Builds the page of one node: a directory, a file, or the root.
 fn render_browse(state: &CodeState, rel_path: &str, def: Option<&str>) -> Response {
-    let index = state.index.lock().expect("the code index lock is never poisoned");
+    let index = state
+        .index
+        .lock()
+        .expect("the code index lock is never poisoned");
     let collection = state.collection.as_str();
 
     let root = match api::tree(index.database(), collection, "", None) {
         Ok(root) => root,
         Err(Error::NoSuchCollection(_)) => return not_indexed_page(collection),
         Err(err) => {
-            return dashboard::error_page(StatusCode::INTERNAL_SERVER_ERROR, Tab::Code, &err.to_string());
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Code,
+                &err.to_string(),
+            );
         }
     };
 
@@ -198,14 +220,22 @@ fn render_browse(state: &CodeState, rel_path: &str, def: Option<&str>) -> Respon
             );
         }
         Err(err) => {
-            return dashboard::error_page(StatusCode::INTERNAL_SERVER_ERROR, Tab::Code, &err.to_string());
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Code,
+                &err.to_string(),
+            );
         }
     };
 
     let (nodes, described) = match api::subtree_status(index.database(), collection, rel_path) {
         Ok(status) => status,
         Err(err) => {
-            return dashboard::error_page(StatusCode::INTERNAL_SERVER_ERROR, Tab::Code, &err.to_string());
+            return dashboard::error_page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Tab::Code,
+                &err.to_string(),
+            );
         }
     };
 
@@ -213,7 +243,11 @@ fn render_browse(state: &CodeState, rel_path: &str, def: Option<&str>) -> Respon
         match api::definitions(index.database(), collection, rel_path) {
             Ok(defs) => defs,
             Err(err) => {
-                return dashboard::error_page(StatusCode::INTERNAL_SERVER_ERROR, Tab::Code, &err.to_string());
+                return dashboard::error_page(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Tab::Code,
+                    &err.to_string(),
+                );
             }
         }
     } else {
@@ -329,7 +363,10 @@ fn repo_label(collection: &str) -> String {
 /// The last segment of a qualified name or a path, such as `recall` from
 /// `src/code/api.rs::CodeIndex::recall`, or `api.rs` from `src/code/api.rs`.
 fn short_name(name: &str) -> &str {
-    name.rsplit("::").next().and_then(|n| n.rsplit('/').next()).unwrap_or(name)
+    name.rsplit("::")
+        .next()
+        .and_then(|n| n.rsplit('/').next())
+        .unwrap_or(name)
 }
 
 /// Builds the "Tree" column: the whole tree of the collection, with the
@@ -361,7 +398,11 @@ fn count_files(node: &TreeNode, files: &mut u64) {
 }
 
 fn render_tree_node(node: &TreeNode, current: &str, out: &mut String) {
-    let dot_class = if node.described { "tree-dot" } else { "tree-dot is-waiting" };
+    let dot_class = if node.described {
+        "tree-dot"
+    } else {
+        "tree-dot is-waiting"
+    };
 
     if node.kind == "file" {
         let row_class = if node.rel_path == current {
@@ -418,12 +459,17 @@ fn detail_panel(node: &Described, defs: &[Described], selected: Option<&str>) ->
         ));
 
         if defs.is_empty() {
-            html.push_str("<p class=\"empty-row\">This file defines nothing that the grammar names.</p>");
+            html.push_str(
+                "<p class=\"empty-row\">This file defines nothing that the grammar names.</p>",
+            );
         } else {
             let picked = selected
                 .and_then(|name| defs.iter().find(|def| def.qualified_name == name))
                 .or_else(|| defs.first());
-            html.push_str(&definitions_list(defs, picked.map(|def| def.qualified_name.as_str())));
+            html.push_str(&definitions_list(
+                defs,
+                picked.map(|def| def.qualified_name.as_str()),
+            ));
             if let Some(picked) = picked {
                 html.push_str(&selected_definition_card(picked));
             }
@@ -475,7 +521,10 @@ fn definitions_list(defs: &[Described], selected: Option<&str>) -> String {
         } else {
             "tree-dot is-waiting"
         };
-        let line = def.start_line.map(|line| format!("L{line}")).unwrap_or_default();
+        let line = def
+            .start_line
+            .map(|line| format!("L{line}"))
+            .unwrap_or_default();
         html.push_str(&format!(
             "<li><a class=\"{row_class}\" href=\"/code/{}?def={}\">\
              <span class=\"definition-name\"><span class=\"{dot_class}\"></span>\
